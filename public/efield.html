@@ -1,0 +1,939 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Electric Field Calculator</title>
+    <style>
+        /* CSS styles control the appearance of HTML elements */
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        
+        /* Style for the main title */
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        
+        /* Style for instructions text */
+        #instructions {
+            max-width: 800px;
+            background-color: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        /* Container for the canvas element */
+        #canvas-container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            position: relative;
+        }
+        
+        /* Style for shape selector tabs */
+        #shape-selector {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            display: flex;
+            gap: 5px;
+            background-color: #f5f5f5;
+            border-radius: 5px;
+            padding: 5px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .shape-tab {
+            padding: 8px 16px;
+            background-color: white;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+        
+        .shape-tab:hover {
+            background-color: #e8e8e8;
+        }
+        
+        .shape-tab.active {
+            background-color: #4CAF50;
+            color: white;
+            border-color: #4CAF50;
+        }
+        
+        /* The canvas is where we draw all graphics */
+        canvas {
+            border: 2px solid #333;
+            cursor: pointer;
+            display: block;
+        }
+        
+        /* Change cursor when hovering over draggable point P */
+        canvas.draggable {
+            cursor: move;
+        }
+                       
+        /* Style for the reset button */
+        #reset-button {
+            margin-top: 10px;
+            padding: 10px 20px;
+            font-size: 14px;
+            background-color: #f44336;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        
+        #reset-button:hover {
+            background-color: #da190b;
+        }
+    </style>
+</head>
+<body>
+    <h1>Electric Field Calculator: Charged Objects</h1>
+    
+    <!-- Instructions box that explains how to use the game -->
+    <div id="instructions">
+        <strong>Instructions:</strong> First, select a shape (semicircle or segment) using the tabs. Then drag point P to any location within the boundary box. Click on each piece of the charged object to see its electric field contribution at point P. 
+        After clicking a piece, it will automatically animate to the accumulation area after 1 second where vectors add tip-to-tail. 
+        Continue until all pieces are selected to see the total electric field!
+    </div>
+    
+    <!-- Container for our drawing canvas -->
+    <div id="canvas-container">
+        <!-- Shape selector tabs -->
+        <div id="shape-selector">
+            <div class="shape-tab active" data-shape="semicircle">Semicircle</div>
+            <div class="shape-tab" data-shape="segment">Segment</div>
+        </div>
+        
+        <canvas id="canvas" width="800" height="600"></canvas>
+    </div>
+    
+    <!-- Button to reset the entire game -->
+    <button id="reset-button">Reset</button>
+
+    <script>
+        // Get references to HTML elements we'll interact with
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d'); // Get 2D drawing context
+        const resetButton = document.getElementById('reset-button');
+        const shapeTabs = document.querySelectorAll('.shape-tab');
+        
+        // ===== SHAPE SELECTION =====
+        let currentShape = 'semicircle'; // 'semicircle' or 'segment'
+        
+        // ===== PHYSICS CONSTANTS =====
+        const NUM_PIECES = 16; // Divide charged object into 16 pieces
+        const RADIUS = 150; // Radius of the semicircular ring in pixels
+        const RING_WIDTH = 20; // Width of the ring in pixels
+        const SEGMENT_LENGTH = 300; // Length of the line segment
+        const SEGMENT_WIDTH = 20; // Width of the line segment
+        const SEMICIRCLE_CENTER_X = 400; // X-coordinate of semicircle center (fixed)
+        const SEMICIRCLE_CENTER_Y = 450; // Y-coordinate of semicircle center (fixed) - near bottom
+        const SEGMENT_CENTER_X = 400; // X-coordinate of segment center (fixed)
+        const SEGMENT_CENTER_Y = 480; // Y-coordinate of segment center (fixed) - in lower third
+        let SHAPE_CENTER_X = 400; // Current shape center X
+        let SHAPE_CENTER_Y = 450; // Current shape center Y
+        let CENTER_X = 400; // X-coordinate of point P (now variable - can be dragged)
+        let CENTER_Y = 450; // Y-coordinate of point P (now variable - can be dragged)
+        const CHARGE_PER_PIECE = 1; // Arbitrary charge unit per piece
+        const K_SCALE = 455000; // Scaling factor reduced by 35% (700000 * 0.65)
+        
+        // ===== BOUNDARY BOX FOR POINT P =====
+        const BOUNDARY_PADDING = 40; // Padding from shape edges
+        let BOUNDARY_LEFT, BOUNDARY_RIGHT, BOUNDARY_TOP, BOUNDARY_BOTTOM;
+        let INNER_BOUNDARY_LEFT, INNER_BOUNDARY_RIGHT, INNER_BOUNDARY_TOP, INNER_BOUNDARY_BOTTOM;
+        const INNER_PADDING = 30; // Padding around the charged object itself
+        
+        // Function to update boundary based on current shape
+        function updateBoundary() {
+            if (currentShape === 'semicircle') {
+                SHAPE_CENTER_X = SEMICIRCLE_CENTER_X;
+                SHAPE_CENTER_Y = SEMICIRCLE_CENTER_Y;
+                
+                // Outer boundary - wider than the semicircle
+                BOUNDARY_LEFT = SHAPE_CENTER_X - RADIUS - 100;
+                BOUNDARY_RIGHT = SHAPE_CENTER_X + RADIUS + 100;
+                BOUNDARY_TOP = SHAPE_CENTER_Y - RADIUS - BOUNDARY_PADDING;
+                BOUNDARY_BOTTOM = canvas.height - 20;
+                
+                // Inner boundary (exclusion zone around the ring)
+                const innerRadius = RADIUS - RING_WIDTH / 2 - INNER_PADDING;
+                const outerRadius = RADIUS + RING_WIDTH / 2 + INNER_PADDING;
+                INNER_BOUNDARY_LEFT = SHAPE_CENTER_X - outerRadius;
+                INNER_BOUNDARY_RIGHT = SHAPE_CENTER_X + outerRadius;
+                INNER_BOUNDARY_TOP = SHAPE_CENTER_Y - outerRadius;
+                INNER_BOUNDARY_BOTTOM = SHAPE_CENTER_Y + INNER_PADDING;
+            } else { // segment
+                SHAPE_CENTER_X = SEGMENT_CENTER_X;
+                SHAPE_CENTER_Y = SEGMENT_CENTER_Y;
+                
+                // Outer boundary - in lower third of canvas, full width
+                BOUNDARY_LEFT = 50;
+                BOUNDARY_RIGHT = canvas.width - 50;
+                BOUNDARY_TOP = canvas.height * 2/3; // Start at 2/3 down the page
+                BOUNDARY_BOTTOM = canvas.height - 20;
+                
+                // Inner boundary (exclusion zone around the segment)
+                INNER_BOUNDARY_LEFT = SHAPE_CENTER_X - SEGMENT_LENGTH / 2 - INNER_PADDING;
+                INNER_BOUNDARY_RIGHT = SHAPE_CENTER_X + SEGMENT_LENGTH / 2 + INNER_PADDING;
+                INNER_BOUNDARY_TOP = SHAPE_CENTER_Y - SEGMENT_WIDTH / 2 - INNER_PADDING;
+                INNER_BOUNDARY_BOTTOM = SHAPE_CENTER_Y + SEGMENT_WIDTH / 2 + INNER_PADDING;
+            }
+        }
+        
+        // ===== GAME STATE VARIABLES =====
+        let pieces = []; // Array to store information about each piece
+        let selectedPiece = null; // Currently selected piece
+        let currentFieldVector = null; // Current field vector being displayed
+        let accumulatedVectors = []; // All vectors that have been moved to the side
+        let clickedPieces = new Set(); // Set to track which pieces have been clicked
+        let simulationStarted = false; // Track if user has clicked the first piece
+        let vectorScaleFactor = 1; // Scale factor for vectors if they get too large
+        
+        // ===== DRAGGING STATE VARIABLES =====
+        let isDraggingP = false; // Track if point P is being dragged
+        let dragOffsetX = 0; // Offset from mouse to center of P
+        let dragOffsetY = 0;
+        
+        // ===== ANIMATION STATE VARIABLES =====
+        let isAnimating = false; // Track if animation is in progress
+        let animationProgress = 0; // Progress from 0 to 1
+        let animatingVector = null; // The vector being animated
+        let waitingForAnimation = false; // Track if we're in the 1-second delay before animation
+
+        
+        // ===== VECTOR ACCUMULATION DISPLAY SETTINGS =====
+        const ACCUMULATION_START_X = canvas.width / 2; // Center horizontally
+        let ACCUMULATION_START_Y = 30; // Will be adjusted based on net field direction
+        let accumulationLabelBelow = false; // Track if label should be below vectors
+        
+        // ===== INITIALIZE THE GAME =====
+        // This function creates all the pieces of the charged object
+        function initializePieces() {
+            pieces = [];
+            
+            if (currentShape === 'semicircle') {
+                // Create semicircular ring pieces
+                const angleStep = Math.PI / NUM_PIECES;
+                
+                for (let i = 0; i < NUM_PIECES; i++) {
+                    const angle = i * angleStep + angleStep / 2;
+                    const x = SHAPE_CENTER_X + RADIUS * Math.cos(angle);
+                    const y = SHAPE_CENTER_Y - RADIUS * Math.sin(angle);
+                    
+                    pieces.push({
+                        angle: angle,
+                        x: x,
+                        y: y,
+                        clicked: false
+                    });
+                }
+            } else { // segment
+                // Create line segment pieces
+                const segmentStep = SEGMENT_LENGTH / NUM_PIECES;
+                const startX = SHAPE_CENTER_X - SEGMENT_LENGTH / 2;
+                
+                for (let i = 0; i < NUM_PIECES; i++) {
+                    const x = startX + (i + 0.5) * segmentStep;
+                    const y = SHAPE_CENTER_Y;
+                    
+                    pieces.push({
+                        index: i,
+                        x: x,
+                        y: y,
+                        clicked: false
+                    });
+                }
+            }
+        }
+        
+        // ===== CALCULATE ELECTRIC FIELD FROM ONE PIECE =====
+        // This function computes the electric field vector at point P from a single piece
+        function calculateFieldFromPiece(piece) {
+            const dx = CENTER_X - piece.x;
+            const dy = CENTER_Y - piece.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            const fieldMagnitude = (K_SCALE * CHARGE_PER_PIECE) / (distance * distance);
+            const fieldX = (dx / distance) * fieldMagnitude;
+            const fieldY = (dy / distance) * fieldMagnitude;
+            
+            return { x: fieldX, y: fieldY };
+        }
+        
+        // ===== CALCULATE REFERENCE FIELD (field at center) =====
+        function calculateReferenceFieldMagnitude() {
+            let distance;
+            if (currentShape === 'semicircle') {
+                distance = RADIUS;
+            } else { // segment - use distance from center piece to center point
+                distance = 0; // Will use average distance from endpoints
+                const dx1 = SHAPE_CENTER_X - SEGMENT_LENGTH / 2 - SHAPE_CENTER_X;
+                const dy1 = SHAPE_CENTER_Y - SHAPE_CENTER_Y;
+                distance = SEGMENT_LENGTH / 2; // Typical distance
+            }
+            
+            const fieldMagnitude = (K_SCALE * CHARGE_PER_PIECE) / (distance * distance);
+            return fieldMagnitude;
+        }
+        
+        // ===== CHECK IF VECTORS NEED SCALING =====
+        function checkAndScaleVectors() {
+            if (!currentFieldVector) return;
+            
+            const referenceMagnitude = calculateReferenceFieldMagnitude();
+            const currentMagnitude = Math.sqrt(currentFieldVector.x ** 2 + currentFieldVector.y ** 2);
+            
+            // If current vector is more than 1.75x larger than reference, scale down by 4
+            if (currentMagnitude > 1.75 * referenceMagnitude) {
+                vectorScaleFactor = 0.25;
+            } else {
+                vectorScaleFactor = 1;
+            }
+        }
+        
+        // ===== HELPER FUNCTION TO CHECK IF MOUSE IS OVER POINT P =====
+        function isMouseOverP(mouseX, mouseY) {
+            const distance = Math.sqrt((mouseX - CENTER_X) ** 2 + (mouseY - CENTER_Y) ** 2);
+            return distance <= 12;
+        }
+        
+        // ===== HELPER FUNCTION TO CHECK IF POINT IS IN INNER BOUNDARY =====
+        function isInInnerBoundary(x, y) {
+            if (currentShape === 'semicircle') {
+                // Check if point is too close to the ring
+                const dx = x - SHAPE_CENTER_X;
+                const dy = y - SHAPE_CENTER_Y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                const innerRadius = RADIUS - RING_WIDTH / 2 - INNER_PADDING;
+                const outerRadius = RADIUS + RING_WIDTH / 2 + INNER_PADDING;
+                
+                // Check if in the ring band
+                if (distance >= innerRadius && distance <= outerRadius) {
+                    // Check if in the upper semicircle (above the horizontal line)
+                    if (y <= SHAPE_CENTER_Y) {
+                        return true;
+                    }
+                }
+                // Also exclude the solid semicircular region above the ring
+                if (y < SHAPE_CENTER_Y && distance < innerRadius) {
+                    return true;
+                }
+                return false;
+            } else { // segment
+                // Simple rectangular exclusion zone
+                return x >= INNER_BOUNDARY_LEFT && x <= INNER_BOUNDARY_RIGHT &&
+                       y >= INNER_BOUNDARY_TOP && y <= INNER_BOUNDARY_BOTTOM;
+            }
+        }
+        
+        // ===== ANIMATION FUNCTION =====
+        function animateVectorTransition(callback) {
+            isAnimating = true;
+            animationProgress = 0;
+            
+            animatingVector = { 
+                x: currentFieldVector.x * vectorScaleFactor, 
+                y: currentFieldVector.y * vectorScaleFactor 
+            };
+            
+            function animate() {
+                animationProgress += 0.03;
+                
+                if (animationProgress >= 1) {
+                    animationProgress = 1;
+                    isAnimating = false;
+                    animatingVector = null;
+                    callback();
+                } else {
+                    draw();
+                    requestAnimationFrame(animate);
+                }
+            }
+            
+            animate();
+        }
+        
+        // ===== DRAWING FUNCTIONS =====
+        
+        // Draw the boundary box for point P placement
+        function drawBoundaryBox() {
+            // Draw outer boundary
+            ctx.strokeStyle = '#888888';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([10, 5]);
+            ctx.strokeRect(
+                BOUNDARY_LEFT,
+                BOUNDARY_TOP,
+                BOUNDARY_RIGHT - BOUNDARY_LEFT,
+                BOUNDARY_BOTTOM - BOUNDARY_TOP
+            );
+            ctx.setLineDash([]);
+            
+            // Draw inner boundary (exclusion zone)
+            ctx.strokeStyle = '#ff8888';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 5]);
+            
+            if (currentShape === 'semicircle') {
+                // Draw exclusion zone around semicircle
+                const innerRadius = RADIUS - RING_WIDTH / 2 - INNER_PADDING;
+                const outerRadius = RADIUS + RING_WIDTH / 2 + INNER_PADDING;
+                
+                // Draw outer arc
+                ctx.beginPath();
+                ctx.arc(SHAPE_CENTER_X, SHAPE_CENTER_Y, outerRadius, Math.PI, 0, false);
+                ctx.stroke();
+                
+                // Draw inner arc
+                ctx.beginPath();
+                ctx.arc(SHAPE_CENTER_X, SHAPE_CENTER_Y, innerRadius, Math.PI, 0, false);
+                ctx.stroke();
+                
+                // Draw side lines
+                ctx.beginPath();
+                ctx.moveTo(SHAPE_CENTER_X - outerRadius, SHAPE_CENTER_Y);
+                ctx.lineTo(SHAPE_CENTER_X - innerRadius, SHAPE_CENTER_Y);
+                ctx.stroke();
+                
+                ctx.beginPath();
+                ctx.moveTo(SHAPE_CENTER_X + outerRadius, SHAPE_CENTER_Y);
+                ctx.lineTo(SHAPE_CENTER_X + innerRadius, SHAPE_CENTER_Y);
+                ctx.stroke();
+            } else { // segment
+                // Draw rectangular exclusion zone
+                ctx.strokeRect(
+                    INNER_BOUNDARY_LEFT,
+                    INNER_BOUNDARY_TOP,
+                    INNER_BOUNDARY_RIGHT - INNER_BOUNDARY_LEFT,
+                    INNER_BOUNDARY_BOTTOM - INNER_BOUNDARY_TOP
+                );
+            }
+            
+            ctx.setLineDash([]);
+            
+            if (!simulationStarted) {
+                ctx.fillStyle = '#888888';
+                ctx.font = '12px Arial';
+                ctx.fillText('Drag P anywhere in gray region', BOUNDARY_LEFT + 10, BOUNDARY_TOP + 20);
+                ctx.fillStyle = '#ff8888';
+                ctx.fillText('(avoid red exclusion zone)', BOUNDARY_LEFT + 10, BOUNDARY_TOP + 35);
+            }
+        }
+        
+        // Draw the semicircular ring with all its pieces
+        function drawSemicircularRing() {
+            const angleStep = Math.PI / NUM_PIECES;
+            const innerRadius = RADIUS - RING_WIDTH / 2;
+            const outerRadius = RADIUS + RING_WIDTH / 2;
+            
+            for (let i = 0; i < NUM_PIECES; i++) {
+                const startAngle = i * angleStep;
+                const endAngle = (i + 1) * angleStep;
+                
+                if (pieces[i].clicked) {
+                    ctx.fillStyle = '#cccccc';
+                } else if (selectedPiece === i) {
+                    ctx.fillStyle = '#ffff00';
+                } else {
+                    ctx.fillStyle = '#ff6b6b';
+                }
+                
+                ctx.beginPath();
+                ctx.arc(SHAPE_CENTER_X, SHAPE_CENTER_Y, outerRadius, -startAngle, -endAngle, true);
+                ctx.lineTo(
+                    SHAPE_CENTER_X + innerRadius * Math.cos(-endAngle),
+                    SHAPE_CENTER_Y + innerRadius * Math.sin(-endAngle)
+                );
+                ctx.arc(SHAPE_CENTER_X, SHAPE_CENTER_Y, innerRadius, -endAngle, -startAngle, false);
+                ctx.closePath();
+                ctx.fill();
+                ctx.strokeStyle = '#333';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            }
+        }
+        
+        // Draw the line segment with all its pieces
+        function drawLineSegment() {
+            const segmentStep = SEGMENT_LENGTH / NUM_PIECES;
+            const startX = SHAPE_CENTER_X - SEGMENT_LENGTH / 2;
+            const topY = SHAPE_CENTER_Y - SEGMENT_WIDTH / 2;
+            const bottomY = SHAPE_CENTER_Y + SEGMENT_WIDTH / 2;
+            
+            for (let i = 0; i < NUM_PIECES; i++) {
+                const x = startX + i * segmentStep;
+                
+                if (pieces[i].clicked) {
+                    ctx.fillStyle = '#cccccc';
+                } else if (selectedPiece === i) {
+                    ctx.fillStyle = '#ffff00';
+                } else {
+                    ctx.fillStyle = '#ff6b6b';
+                }
+                
+                ctx.fillRect(x, topY, segmentStep, SEGMENT_WIDTH);
+                ctx.strokeStyle = '#333';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(x, topY, segmentStep, SEGMENT_WIDTH);
+            }
+        }
+        
+        // Draw the appropriate shape
+        function drawShape() {
+            if (currentShape === 'semicircle') {
+                drawSemicircularRing();
+            } else {
+                drawLineSegment();
+            }
+        }
+        
+        // Draw point P at its current position
+        function drawPointP() {
+            if (!simulationStarted) {
+                ctx.strokeStyle = '#0000ff';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([5, 5]);
+                ctx.beginPath();
+                ctx.arc(CENTER_X, CENTER_Y, 12, 0, 2 * Math.PI);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+            
+            ctx.fillStyle = '#0000ff';
+            ctx.beginPath();
+            ctx.arc(CENTER_X, CENTER_Y, 8, 0, 2 * Math.PI);
+            ctx.fill();
+            
+            ctx.fillStyle = '#000';
+            ctx.font = 'bold 16px Arial';
+            ctx.fillText('P', CENTER_X + 15, CENTER_Y + 5);
+            
+            if (!simulationStarted) {
+                ctx.fillStyle = '#0000ff';
+                ctx.font = 'italic 14px Arial';
+                ctx.fillText('(Drag me!)', CENTER_X + 15, CENTER_Y + 25);
+            }
+        }
+        
+        // Draw an arrow (vector) from a starting point
+        function drawArrow(startX, startY, endX, endY, color = '#0000ff', lineWidth = 3) {
+            const headLength = 10;
+            const dx = endX - startX;
+            const dy = endY - startY;
+            const angle = Math.atan2(dy, dx);
+            
+            ctx.strokeStyle = color;
+            ctx.lineWidth = lineWidth;
+            ctx.beginPath();
+            ctx.moveTo(startX, startY);
+            ctx.lineTo(endX, endY);
+            ctx.stroke();
+            
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.moveTo(endX, endY);
+            ctx.lineTo(
+                endX - headLength * Math.cos(angle - Math.PI / 6),
+                endY - headLength * Math.sin(angle - Math.PI / 6)
+            );
+            ctx.lineTo(
+                endX - headLength * Math.cos(angle + Math.PI / 6),
+                endY - headLength * Math.sin(angle + Math.PI / 6)
+            );
+            ctx.closePath();
+            ctx.fill();
+        }
+        
+        // Draw the current field vector at point P
+        function drawCurrentFieldVector() {
+            if (currentFieldVector) {
+                const scaledX = currentFieldVector.x * vectorScaleFactor;
+                const scaledY = currentFieldVector.y * vectorScaleFactor;
+                
+                drawArrow(
+                    CENTER_X,
+                    CENTER_Y,
+                    CENTER_X + scaledX,
+                    CENTER_Y + scaledY,
+                    '#ff0000',
+                    4
+                );
+            }
+        }
+        
+        // Calculate the net field direction to determine accumulation start position
+        function updateAccumulationStartPosition() {
+            if (accumulatedVectors.length === 0) return;
+            
+            let netY = 0;
+            for (let vec of accumulatedVectors) {
+                netY += vec.y;
+            }
+            
+            // If net field points up (negative Y), start accumulation near the shape
+            if (netY < 0) {
+                if (currentShape === 'semicircle') {
+                    ACCUMULATION_START_Y = SHAPE_CENTER_Y - RADIUS - 80;
+                } else {
+                    ACCUMULATION_START_Y = SHAPE_CENTER_Y - 100;
+                }
+                accumulationLabelBelow = true; // Label goes below
+            } else {
+                ACCUMULATION_START_Y = 30;
+                accumulationLabelBelow = false; // Label goes above
+            }
+        }
+        
+        // Draw the vector during animation transition
+        function drawAnimatingVector() {
+            if (!isAnimating || !animatingVector) return;
+            
+            const startX = CENTER_X;
+            const startY = CENTER_Y;
+            
+            let accumulatedX = ACCUMULATION_START_X;
+            let accumulatedY = ACCUMULATION_START_Y;
+            for (let vec of accumulatedVectors) {
+                accumulatedX += vec.x;
+                accumulatedY += vec.y;
+            }
+            
+            const currentX = startX + (accumulatedX - startX) * animationProgress;
+            const currentY = startY + (accumulatedY - startY) * animationProgress;
+            
+            drawArrow(
+                currentX,
+                currentY,
+                currentX + animatingVector.x,
+                currentY + animatingVector.y,
+                '#00ff00',
+                4
+            );
+        }
+        
+        // Draw all accumulated vectors in tip-to-tail fashion
+        function drawAccumulatedVectors() {
+            let currentX = ACCUMULATION_START_X;
+            let currentY = ACCUMULATION_START_Y;
+            
+            // Draw label (above or below based on field direction)
+            ctx.fillStyle = '#000';
+            ctx.font = 'bold 14px Arial';
+            ctx.textAlign = 'center';
+            if (accumulationLabelBelow) {
+                // Calculate where vectors end to place label below
+                let endY = currentY;
+                for (let vec of accumulatedVectors) {
+                    endY += vec.y;
+                }
+                ctx.fillText('Accumulated Field Vectors:', ACCUMULATION_START_X, endY + 25);
+            } else {
+                ctx.fillText('Accumulated Field Vectors:', ACCUMULATION_START_X, ACCUMULATION_START_Y - 15);
+            }
+            ctx.textAlign = 'left';
+            
+            // Draw each vector
+            for (let i = 0; i < accumulatedVectors.length; i++) {
+                const vec = accumulatedVectors[i];
+                drawArrow(
+                    currentX,
+                    currentY,
+                    currentX + vec.x,
+                    currentY + vec.y,
+                    '#0066cc',
+                    2
+                );
+                
+                currentX += vec.x;
+                currentY += vec.y;
+            }
+            
+            // Draw the total resultant vector
+            if (accumulatedVectors.length > 0) {
+                drawArrow(
+                    ACCUMULATION_START_X,
+                    ACCUMULATION_START_Y,
+                    currentX,
+                    currentY,
+                    '#ff0000',
+                    3
+                );
+                
+                ctx.fillStyle = '#ff0000';
+                ctx.font = 'bold 14px Arial';
+                ctx.fillText(
+                    'Total E-field',
+                    currentX + 10,
+                    currentY
+                );
+            }
+        }
+        
+        // Draw completion message when all pieces are selected
+        function drawCompletionMessage() {
+            if (clickedPieces.size === NUM_PIECES) {
+                ctx.fillStyle = 'rgba(0, 255, 0, 0.8)';
+                ctx.fillRect(200, 250, 400, 100);
+                ctx.fillStyle = '#000';
+                ctx.font = 'bold 24px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('All pieces selected!', SHAPE_CENTER_X, 290);
+                ctx.font = '18px Arial';
+                ctx.fillText('This is the total electric field at point P.', SHAPE_CENTER_X, 320);
+                ctx.textAlign = 'left';
+            }
+        }
+        
+        // Main draw function
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            drawBoundaryBox();
+            drawShape();
+            drawPointP();
+            
+            if (!isAnimating) {
+                drawCurrentFieldVector();
+            }
+            
+            drawAnimatingVector();
+            drawAccumulatedVectors();
+            drawCompletionMessage();
+        }
+        
+        // ===== EVENT HANDLERS =====
+        
+        // Handle shape tab clicks
+        shapeTabs.forEach(tab => {
+            tab.addEventListener('click', function() {
+                if (simulationStarted || isAnimating || waitingForAnimation) {
+                    alert('Please reset before changing shapes!');
+                    return;
+                }
+                
+                // Update active tab
+                shapeTabs.forEach(t => t.classList.remove('active'));
+                this.classList.add('active');
+                
+                // Change shape
+                currentShape = this.dataset.shape;
+                
+                // Reset and reinitialize with appropriate default P position
+                updateBoundary(); // Update boundary first to get correct positions
+                
+                if (currentShape === 'semicircle') {
+                    CENTER_X = SHAPE_CENTER_X;
+                    CENTER_Y = SHAPE_CENTER_Y;
+                } else { // segment - default P to the right, just outside red box
+                    CENTER_X = INNER_BOUNDARY_RIGHT + 20;
+                    CENTER_Y = SHAPE_CENTER_Y;
+                }
+                
+                initializePieces();
+                draw();
+            });
+        });
+        
+        // Handle mouse down - start dragging P
+        canvas.addEventListener('mousedown', function(event) {
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = event.clientX - rect.left;
+            const mouseY = event.clientY - rect.top;
+            
+            if (!simulationStarted && isMouseOverP(mouseX, mouseY)) {
+                isDraggingP = true;
+                dragOffsetX = mouseX - CENTER_X;
+                dragOffsetY = mouseY - CENTER_Y;
+                canvas.classList.add('draggable');
+                return;
+            }
+        });
+        
+        // Handle mouse move - drag point P
+        canvas.addEventListener('mousemove', function(event) {
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = event.clientX - rect.left;
+            const mouseY = event.clientY - rect.top;
+            
+            if (!simulationStarted && !isDraggingP) {
+                if (isMouseOverP(mouseX, mouseY)) {
+                    canvas.style.cursor = 'move';
+                } else {
+                    canvas.style.cursor = 'pointer';
+                }
+            }
+            
+            if (isDraggingP) {
+                CENTER_X = mouseX - dragOffsetX;
+                CENTER_Y = mouseY - dragOffsetY;
+                
+                CENTER_X = Math.max(BOUNDARY_LEFT + 20, Math.min(BOUNDARY_RIGHT - 20, CENTER_X));
+                CENTER_Y = Math.max(BOUNDARY_TOP + 20, Math.min(BOUNDARY_BOTTOM - 20, CENTER_Y));
+                
+                draw();
+            }
+        });
+        
+        // Handle mouse up - stop dragging
+        canvas.addEventListener('mouseup', function(event) {
+            if (isDraggingP) {
+                isDraggingP = false;
+                canvas.classList.remove('draggable');
+                canvas.style.cursor = 'pointer';
+            }
+        });
+        
+        // Handle clicks to select pieces
+        canvas.addEventListener('click', function(event) {
+            if (isAnimating || waitingForAnimation || isDraggingP) return;
+            
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = event.clientX - rect.left;
+            const mouseY = event.clientY - rect.top;
+            
+            let clickedPieceIndex = -1;
+            
+            if (currentShape === 'semicircle') {
+                // Check semicircle pieces
+                const angleStep = Math.PI / NUM_PIECES;
+                const innerRadius = RADIUS - RING_WIDTH / 2;
+                const outerRadius = RADIUS + RING_WIDTH / 2;
+                
+                const dx = mouseX - SHAPE_CENTER_X;
+                const dy = SHAPE_CENTER_Y - mouseY;
+                const mouseAngle = Math.atan2(dy, dx);
+                const distance = Math.sqrt(dx * dx + (SHAPE_CENTER_Y - mouseY) * (SHAPE_CENTER_Y - mouseY));
+                
+                for (let i = 0; i < NUM_PIECES; i++) {
+                    if (clickedPieces.has(i)) continue;
+                    
+                    const startAngle = i * angleStep;
+                    const endAngle = (i + 1) * angleStep;
+                    
+                    if (distance >= innerRadius && distance <= outerRadius && 
+                        mouseAngle >= startAngle && mouseAngle <= endAngle) {
+                        clickedPieceIndex = i;
+                        break;
+                    }
+                }
+            } else { // segment
+                // Check segment pieces
+                const segmentStep = SEGMENT_LENGTH / NUM_PIECES;
+                const startX = SHAPE_CENTER_X - SEGMENT_LENGTH / 2;
+                const topY = SHAPE_CENTER_Y - SEGMENT_WIDTH / 2;
+                const bottomY = SHAPE_CENTER_Y + SEGMENT_WIDTH / 2;
+                
+                for (let i = 0; i < NUM_PIECES; i++) {
+                    if (clickedPieces.has(i)) continue;
+                    
+                    const x = startX + i * segmentStep;
+                    
+                    if (mouseX >= x && mouseX <= x + segmentStep &&
+                        mouseY >= topY && mouseY <= bottomY) {
+                        clickedPieceIndex = i;
+                        break;
+                    }
+                }
+            }
+            
+            if (clickedPieceIndex >= 0) {
+                simulationStarted = true;
+                canvas.style.cursor = 'pointer';
+                
+                selectedPiece = clickedPieceIndex;
+                currentFieldVector = calculateFieldFromPiece(pieces[clickedPieceIndex]);
+                
+                checkAndScaleVectors();
+                waitingForAnimation = true;
+                draw();
+                
+                setTimeout(function() {
+                    const pieceToMove = selectedPiece;
+                    const vectorToMove = currentFieldVector;
+                    
+                    animateVectorTransition(function() {
+                        accumulatedVectors.push({
+                            x: vectorToMove.x * vectorScaleFactor,
+                            y: vectorToMove.y * vectorScaleFactor
+                        });
+                        pieces[pieceToMove].clicked = true;
+                        clickedPieces.add(pieceToMove);
+                        
+                        updateAccumulationStartPosition();
+                        
+                        selectedPiece = null;
+                        currentFieldVector = null;
+                        waitingForAnimation = false;
+                        
+                        draw();
+                    });
+                }, 1000);
+            }
+        });      
+        
+        // Handle Reset button click
+        resetButton.addEventListener('click', function() {
+            selectedPiece = null;
+            currentFieldVector = null;
+            accumulatedVectors = [];
+            clickedPieces.clear();
+            isAnimating = false;
+            animatingVector = null;
+            animationProgress = 0;
+            waitingForAnimation = false;
+            simulationStarted = false;
+            isDraggingP = false;
+            vectorScaleFactor = 1;
+            ACCUMULATION_START_Y = 30;
+            accumulationLabelBelow = false;
+            
+            // Update boundary first
+            updateBoundary();
+            
+            // Reset P to appropriate default position based on shape
+            if (currentShape === 'semicircle') {
+                CENTER_X = SHAPE_CENTER_X;
+                CENTER_Y = SHAPE_CENTER_Y;
+            } else { // segment - default to the right, just outside red box
+                CENTER_X = INNER_BOUNDARY_RIGHT + 20;
+                CENTER_Y = SHAPE_CENTER_Y;
+            }
+            
+            initializePieces();
+            draw();
+        });
+        
+        // ===== START THE GAME =====
+        updateBoundary();
+        
+        // Set initial P position based on starting shape
+        if (currentShape === 'semicircle') {
+            CENTER_X = SHAPE_CENTER_X;
+            CENTER_Y = SHAPE_CENTER_Y;
+        } else {
+            CENTER_X = INNER_BOUNDARY_RIGHT + 20;
+            CENTER_Y = SHAPE_CENTER_Y;
+        }
+        
+        initializePieces();
+        draw();
+    </script>
+</body>
+</html>
