@@ -333,8 +333,8 @@
                 }
                 // Also exclude the solid semicircular region above the ring
                 if (y < SHAPE_CENTER_Y && distance < innerRadius) {
-                    return true;
-                }
+              //      return true;
+              //  }
                 return false;
             } else { // segment
                 // Simple rectangular exclusion zone
@@ -781,12 +781,13 @@
             }
             
             if (isDraggingP) {
-                CENTER_X = mouseX - dragOffsetX;
-                CENTER_Y = mouseY - dragOffsetY;
-                
-                CENTER_X = Math.max(BOUNDARY_LEFT + 20, Math.min(BOUNDARY_RIGHT - 20, CENTER_X));
-                CENTER_Y = Math.max(BOUNDARY_TOP + 20, Math.min(BOUNDARY_BOTTOM - 20, CENTER_Y));
-                
+                //TEMP_X = mouseX - dragOffsetX;
+                //TEMP_Y = mouseY - dragOffsetY;
+                if (!isInInnerBoundary(mouseX - dragOffsetX, mouseY - dragOffsetY)) {
+                      CENTER_X = Math.max(BOUNDARY_LEFT + 20, Math.min(BOUNDARY_RIGHT - 20, mouseX - dragOffsetX));
+                      CENTER_Y = Math.max(BOUNDARY_TOP + 20, Math.min(BOUNDARY_BOTTOM - 20, mouseY - dragOffsetY));
+                }
+              
                 draw();
             }
         });

@@ -5,18 +5,27 @@ const PotentialSimulator = () => {
   const [points, setPoints] = useState([]);
   const [isDrawing, setIsDrawing] = useState(false);
   const [polynomial, setPolynomial] = useState(null);
+  const [spline, setSpline] = useState(null);
   const [quadratic, setQuadratic] = useState(null);
   const [minimum, setMinimum] = useState(null);
   const [validRange, setValidRange] = useState(null);
   const [simulating, setSimulating] = useState(false);
   const [particlePos, setParticlePos] = useState(null);
   const [particleVel, setParticleVel] = useState(0);
+  // New state for spline-following particle
+  const [splineParticlePos, setSplineParticlePos] = useState(null);
+  const [splineParticleVel, setSplineParticleVel] = useState(0);
   const [error, setError] = useState('');
   const [showInfo, setShowInfo] = useState(true);
   
   const canvasRef = useRef(null);
   const zoomCanvasRef = useRef(null);
   const animationRef = useRef(null);
+  const particlePosRef = useRef(null);
+  const particleVelRef = useRef(0);
+  // New refs for spline-following particle
+  const splineParticlePosRef = useRef(null);
+  const splineParticleVelRef = useRef(0);
   
   const width = 600;
   const height = 300;
@@ -102,6 +111,91 @@ const PotentialSimulator = () => {
     return x;
   };
   
+  // Cubic spline interpolation
+  const fitCubicSpline = (points) => {
+    const n = points.length;
+    if (n < 2) return null;
+    
+    // Sort points by x
+    const sorted = [...points].sort((a, b) => a.x - b.x);
+    
+    // Reduce points to avoid having too many at similar x values
+    // Keep approximately 50-100 well-distributed points
+    const targetPoints = Math.min(80, Math.max(20, Math.floor(n / 5)));
+    const reduced = [];
+    const step = Math.max(1, Math.floor(sorted.length / targetPoints));
+    
+    for (let i = 0; i < sorted.length; i += step) {
+      reduced.push(sorted[i]);
+    }
+    // Always include the last point
+    if (reduced[reduced.length - 1] !== sorted[sorted.length - 1]) {
+      reduced.push(sorted[sorted.length - 1]);
+    }
+    
+    // Extract x and y arrays from reduced set
+    const x = reduced.map(p => p.x);
+    const y = reduced.map(p => p.y);
+    
+    const nReduced = reduced.length;
+    
+    // Build tridiagonal system for natural cubic spline
+    // We need to solve for the second derivatives (M values)
+    const h = Array(nReduced - 1).fill(0);
+    for (let i = 0; i < nReduced - 1; i++) {
+      h[i] = x[i + 1] - x[i];
+    }
+    
+    // Build the system matrix (tridiagonal)
+    const A = Array(nReduced).fill(0).map(() => Array(nReduced).fill(0));
+    const b = Array(nReduced).fill(0);
+    
+    // Natural boundary conditions: M[0] = M[n-1] = 0
+    A[0][0] = 1;
+    A[nReduced - 1][nReduced - 1] = 1;
+    
+    // Interior points
+    for (let i = 1; i < nReduced - 1; i++) {
+      A[i][i - 1] = h[i - 1];
+      A[i][i] = 2 * (h[i - 1] + h[i]);
+      A[i][i + 1] = h[i];
+      b[i] = 6 * ((y[i + 1] - y[i]) / h[i] - (y[i] - y[i - 1]) / h[i - 1]);
+    }
+    
+    // Solve for M (second derivatives)
+    const M = gaussianElimination(A, b);
+    
+    return { x, y, M, h };
+  };
+  
+  const evaluateCubicSpline = (spline, xVal) => {
+    if (!spline) return 0;
+    
+    const { x, y, M, h } = spline;
+    const n = x.length;
+    
+    // Handle boundary cases
+    if (xVal <= x[0]) return y[0];
+    if (xVal >= x[n - 1]) return y[n - 1];
+    
+    // Find the interval containing xVal
+    let i = 0;
+    for (i = 0; i < n - 1; i++) {
+      if (xVal >= x[i] && xVal <= x[i + 1]) break;
+    }
+    
+    // Evaluate cubic polynomial on this interval
+    const t = xVal - x[i];
+    const hi = h[i];
+    
+    const a = M[i] / (6 * hi);
+    const b = M[i + 1] / (6 * hi);
+    const c = (y[i] / hi) - (M[i] * hi / 6);
+    const d = (y[i + 1] / hi) - (M[i + 1] * hi / 6);
+    
+    return a * Math.pow(hi - t, 3) + b * Math.pow(t, 3) + c * (hi - t) + d * t;
+  };
+  
   const evaluatePolynomial = (poly, x) => {
     const xNorm = 2 * (x - poly.xMin) / poly.xRange - 1;
     let result = 0;
@@ -111,7 +205,7 @@ const PotentialSimulator = () => {
     return result;
   };
   
-  const findLocalMinima = (poly, xMin, xMax, samples = 200) => {
+  const findLocalMinima = (poly, xMin, xMax, samples = 20) => {
     const minima = [];
     const step = (xMax - xMin) / samples;
     
@@ -124,7 +218,7 @@ const PotentialSimulator = () => {
       const yNext2 = evaluatePolynomial(poly, x + 2 * step);
       
       // Check if it's a local minimum (not maximum)
-      if (y < yPrev && y < yNext && y < yPrev2 && y < yNext2) {
+      if ((y >= yPrev ||y >= yPrev2) && (y >= yNext || y >= yNext2)) {
         minima.push({ x, y });
       }
     }
@@ -132,21 +226,43 @@ const PotentialSimulator = () => {
     return minima;
   };
   
-  const fitQuadraticAtMinimum = (poly, minX, windowSize = 0.15) => {
+  const findLocalMinimaFromSpline = (spline, xMin, xMax, samples = 200) => {
+    const minima = [];
+    const step = (xMax - xMin) / samples;
+    
+    for (let i = 2; i < samples - 2; i++) {
+      const x = xMin + i * step;
+      const y = evaluateCubicSpline(spline, x);
+      const yPrev = evaluateCubicSpline(spline, x - step);
+      const yNext = evaluateCubicSpline(spline, x + step);
+      const yPrev2 = evaluateCubicSpline(spline, x - 2 * step);
+      const yNext2 = evaluateCubicSpline(spline, x + 2 * step);
+      
+      // Check if it's a local minimum (not maximum)
+      if ((y >= yPrev ||y >= yPrev2) && (y >= yNext || y >= yNext2)){
+        minima.push({ x, y });
+      }
+    }
+    
+    return minima;
+  };
+  
+  const fitQuadraticAtMinimum = (spline, minX, windowSize = 0.15) => {
     const samples = [];
     const xMin = Math.max(0, minX - windowSize);
     const xMax = Math.min(1, minX + windowSize);
     
-    for (let i = 0; i <= 20; i++) {
-      const x = xMin + (xMax - xMin) * i / 20;
-      const y = evaluatePolynomial(poly, x);
+    // Sample points from the spline
+    for (let i = 0; i <= 30; i++) {
+      const x = xMin + (xMax - xMin) * i / 30;
+      const y = evaluateCubicSpline(spline, x);
       samples.push({ x, y });
     }
     
     return fitPolynomial(samples, 2);
   };
   
-  const findValidRange = (poly, quad, minX, tolerance = 0.05) => {
+  const findValidRange = (poly, quad, minX, tolerance = 0.03) => {
     let leftX = minX;
     let rightX = minX;
     const step = 0.01;
@@ -169,6 +285,7 @@ const PotentialSimulator = () => {
   };
   
   const handleMouseDown = (e) => {
+    if (simulating) return;
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
     const x = (e.clientX - rect.left - padding) / (width - 2 * padding);
@@ -178,17 +295,16 @@ const PotentialSimulator = () => {
       setIsDrawing(true);
       setPoints([{ x, y }]);
       setPolynomial(null);
+      setSpline(null);
       setQuadratic(null);
       setMinimum(null);
       setValidRange(null);
-      setSimulating(false);
       setError('');
     }
   };
   
   const handleMouseMove = (e) => {
-    if (!isDrawing) return;
-    
+    if (!isDrawing || simulating) return;
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
     const x = (e.clientX - rect.left - padding) / (width - 2 * padding);
@@ -204,156 +320,234 @@ const PotentialSimulator = () => {
     setIsDrawing(false);
     
     if (points.length < 10) {
-      setError('Draw a longer curve!');
+      setError('Draw more points (click and drag)');
       return;
     }
     
-    // Sort points by x
-    const sortedPoints = [...points].sort((a, b) => a.x - b.x);
-    
-    // Fit polynomial
-    const poly = fitPolynomial(sortedPoints, 8);
-    if (!poly) {
-      setError('Failed to fit polynomial');
+    // Fit cubic spline
+    const splineResult = fitCubicSpline(points);
+    if (!splineResult) {
+      setError('Could not fit spline to the points');
       return;
     }
+    setSpline(splineResult);
     
     // Find local minima
-    const minima = findLocalMinima(poly, 0, 1);
+    const minima = findLocalMinimaFromSpline(splineResult, 0, 1);
+    
     if (minima.length === 0) {
-      setError('No local minimum found! Draw a curve with at least one valley.');
+      setError('No local minimum found. Draw a curve with at least one valley.');
+      setSpline(null);
       return;
     }
     
-    // Choose deepest minimum
-    const deepestMin = minima.reduce((a, b) => a.y < b.y ? a : b);
-    
-    // Fit quadratic at minimum
-    const quad = fitQuadraticAtMinimum(poly, deepestMin.x);
-    
-    // Find valid range
-    const range = findValidRange(poly, quad, deepestMin.x);
-    
-    setPolynomial(poly);
-    setQuadratic(quad);
-    setMinimum(deepestMin);
-    setValidRange(range);
-    setParticlePos(deepestMin.x);
-    setParticleVel(0);
-  };
-  
-  const simulate = () => {
-    if (!quadratic || !validRange) return;
-    
-    const dt = 0.016;
-    const g = 0.5; // gravity constant
-    
-    setParticlePos(prev => {
-      const x = prev + particleVel * dt;
-      
-      // Check bounds
-      if (x <= validRange.left || x >= validRange.right) {
-        setSimulating(false);
-        return prev;
+    // Find the deepest minimum
+    let deepestMin = minima[0];
+    for (const min of minima) {
+      if (min.y > deepestMin.y) {
+        deepestMin = min;
       }
-      
-      // Calculate force from quadratic potential
-      const dx = 0.001;
-      const dV = evaluatePolynomial(quadratic, x + dx) - evaluatePolynomial(quadratic, x - dx);
-      const force = -dV / (2 * dx);
-      
-      setParticleVel(v => v + force * g * dt);
-      
-      return x;
-    });
-  };
-  
-  useEffect(() => {
-    if (simulating) {
-      animationRef.current = setInterval(simulate, 16);
-    } else {
-      if (animationRef.current) clearInterval(animationRef.current);
     }
-    return () => {
-      if (animationRef.current) clearInterval(animationRef.current);
-    };
-  }, [simulating, particleVel, quadratic, validRange]);
+    setMinimum(deepestMin);
+    
+    // Fit quadratic around the minimum
+    const quad = fitQuadraticAtMinimum(splineResult, deepestMin.x);
+    if (!quad) {
+      setError('Could not fit quadratic approximation');
+      return;
+    }
+    setQuadratic(quad);
+    
+    // Find valid range where quadratic approximation is good
+    const polyFit = fitPolynomial(points, 8);
+    const range = findValidRange(polyFit, quad, deepestMin.x);
+    setValidRange(range);
+    
+    setError('');
+  };
   
   const reset = () => {
     setPoints([]);
     setPolynomial(null);
+    setSpline(null);
     setQuadratic(null);
     setMinimum(null);
     setValidRange(null);
     setSimulating(false);
     setParticlePos(null);
     setParticleVel(0);
+    setSplineParticlePos(null);
+    setSplineParticleVel(0);
     setError('');
+    if (animationRef.current) {
+      cancelAnimationFrame(animationRef.current);
+    }
   };
+  
+  // Numerical derivative for spline (finite difference)
+  const getSplineDerivative = (spline, x, h = 0.0001) => {
+    const y1 = evaluateCubicSpline(spline, x + h);
+    const y2 = evaluateCubicSpline(spline, x - h);
+    return (y1 - y2) / (2 * h);
+  };
+  
+  // Animation loop
+  useEffect(() => {
+    if (!simulating || !quadratic || !validRange || !spline) return;
+    
+    const animate = () => {
+      const dt = 0.016; // ~60fps
+      const k = 50; // Spring constant for quadratic
+      const m = 10; // Mass
+      
+      // Update quadratic-following particle (green)
+      let x = particlePosRef.current;
+      let v = particleVelRef.current;
+      
+      if (x !== null) {
+        // Calculate force from quadratic potential: F = -dV/dx
+        const h = 0.0001;
+        const V1 = evaluatePolynomial(quadratic, x + h);
+        const V2 = evaluatePolynomial(quadratic, x - h);
+        const force = (V1 - V2) / (2 * h);
+        
+        const a = force / m;
+        v += a * dt;
+        x += v * dt;
+        
+        // Reflect at boundaries
+        if (x < validRange.left) {
+          x = validRange.left;
+          v = -v * 0.99;
+        }
+        if (x > validRange.right) {
+          x = validRange.right;
+          v = -v * 0.99;
+        }
+        
+        particlePosRef.current = x;
+        particleVelRef.current = v;
+        setParticlePos(x);
+        setParticleVel(v);
+      }
+      
+      // Update spline-following particle (orange)
+      let xSpline = splineParticlePosRef.current;
+      let vSpline = splineParticleVelRef.current;
+      
+      if (xSpline !== null) {
+        // Calculate force from spline potential: F = -dV/dx
+        const forceSpline = getSplineDerivative(spline, xSpline);
+        
+        const aSpline = forceSpline / m;
+        vSpline += aSpline * dt;
+        xSpline += vSpline * dt;
+        
+        // Reflect at boundaries (use same boundaries as quadratic for consistency)
+        if (xSpline < validRange.left) {
+          xSpline = validRange.left;
+          vSpline = -vSpline * 0.99;
+        }
+        if (xSpline > validRange.right) {
+          xSpline = validRange.right;
+          vSpline = -vSpline * 0.99;
+        }
+        
+        splineParticlePosRef.current = xSpline;
+        splineParticleVelRef.current = vSpline;
+        setSplineParticlePos(xSpline);
+        setSplineParticleVel(vSpline);
+      }
+      
+      animationRef.current = requestAnimationFrame(animate);
+    };
+    
+    animationRef.current = requestAnimationFrame(animate);
+    
+    return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
+    };
+  }, [simulating, quadratic, validRange, spline]);
   
   const drawCanvas = (canvas, showParticle = false) => {
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
+    const w = canvas.width;
+    const h = canvas.height;
     const isZoom = canvas === zoomCanvasRef.current;
-    const w = isZoom ? zoomWidth : width;
-    const h = isZoom ? zoomHeight : height;
     
-    ctx.clearRect(0, 0, w, h);
-    
-    // Background
-    ctx.fillStyle = '#f8fafc';
+    // Clear canvas
+    ctx.fillStyle = 'white';
     ctx.fillRect(0, 0, w, h);
     
-    // Grid
-    ctx.strokeStyle = '#e2e8f0';
+    // Draw axes
+    ctx.strokeStyle = '#d1d5db';
     ctx.lineWidth = 1;
-    for (let i = 0; i <= 10; i++) {
-      const x = padding + (w - 2 * padding) * i / 10;
-      ctx.beginPath();
-      ctx.moveTo(x, padding);
-      ctx.lineTo(x, h - padding);
-      ctx.stroke();
-      
-      const y = padding + (h - 2 * padding) * i / 10;
-      ctx.beginPath();
-      ctx.moveTo(padding, y);
-      ctx.lineTo(w - padding, y);
-      ctx.stroke();
-    }
-    
-    // Axes
-    ctx.strokeStyle = '#000';
-    ctx.lineWidth = 2;
     ctx.beginPath();
+    ctx.moveTo(padding, h - padding);
+    ctx.lineTo(w - padding, h - padding);
     ctx.moveTo(padding, padding);
     ctx.lineTo(padding, h - padding);
-    ctx.lineTo(w - padding, h - padding);
     ctx.stroke();
     
-    // Labels
-    ctx.fillStyle = '#000';
+    // Add labels
+    ctx.fillStyle = '#6b7280';
     ctx.font = '12px sans-serif';
-    ctx.fillText('Position', w / 2, h - 10);
+    ctx.fillText('Position', w / 2 - 20, h - 10);
     ctx.save();
     ctx.translate(15, h / 2);
     ctx.rotate(-Math.PI / 2);
-    ctx.fillText('Potential', 0, 0);
+    ctx.fillText('Potential Energy', 0, 0);
     ctx.restore();
     
     const toCanvasX = (x) => padding + (w - 2 * padding) * x;
     const toCanvasY = (y) => padding + (h - 2 * padding) * y;
     
-    // Zoom window calculation
-    let zoomXMin = 0, zoomXMax = 1;
-    if (isZoom && validRange) {
+    // Determine zoom range
+    let zoomXMin = 0, zoomXMax = 1, zoomYMin = 0, zoomYMax = 1;
+    if (isZoom && validRange && spline) {
       const center = (validRange.left + validRange.right) / 2;
       const range = (validRange.right - validRange.left) * 1.5;
+      
       zoomXMin = Math.max(0, center - range / 2);
       zoomXMax = Math.min(1, center + range / 2);
+      
+      // Calculate Y range for zoom based on spline in the x range
+      const samples = 50;
+      const yValues = [];
+      for (let i = 0; i <= samples; i++) {
+        const x = zoomXMin + (zoomXMax - zoomXMin) * i / samples;
+        yValues.push(evaluateCubicSpline(spline, x));
+      }
+      const minY = Math.min(...yValues);
+      const maxY = Math.max(...yValues);
+      const yRange = maxY - minY;
+      const yPadding = yRange * 0.2; // Add 20% padding
+      zoomYMin = Math.max(0, minY - yPadding);
+      zoomYMax = Math.min(1, maxY + yPadding);
     }
     
-    // Draw user's raw drawing (only on main canvas)
-    if (!isZoom && points.length > 1 && !polynomial) {
+    // Coordinate transformation functions (zoom-aware)
+    const toZoomCanvasX = (x) => {
+      if (isZoom) {
+        const normalizedX = (x - zoomXMin) / (zoomXMax - zoomXMin);
+        return padding + (w - 2 * padding) * normalizedX;
+      }
+      return toCanvasX(x);
+    };
+    
+    const toZoomCanvasY = (y) => {
+      if (isZoom) {
+        const normalizedY = (y - zoomYMin) / (zoomYMax - zoomYMin);
+        return padding + (h - 2 * padding) * normalizedY;
+      }
+      return toCanvasY(y);
+    };
+    
+    // Draw user's raw drawing (only before spline is fitted)
+    if (!isZoom && points.length > 1 && !spline) {
       ctx.strokeStyle = '#64748b';
       ctx.lineWidth = 2;
       ctx.beginPath();
@@ -366,16 +560,16 @@ const PotentialSimulator = () => {
       ctx.stroke();
     }
     
-    // Draw polynomial
-    if (polynomial) {
+    // Draw cubic spline
+    if (spline) {
       ctx.strokeStyle = '#3b82f6';
       ctx.lineWidth = 2;
       ctx.beginPath();
       for (let i = 0; i <= 200; i++) {
         const x = isZoom ? zoomXMin + (zoomXMax - zoomXMin) * i / 200 : i / 200;
-        const y = evaluatePolynomial(polynomial, x);
-        const canvasX = toCanvasX(isZoom ? (x - zoomXMin) / (zoomXMax - zoomXMin) : x);
-        const canvasY = toCanvasY(y);
+        const y = evaluateCubicSpline(spline, x);
+        const canvasX = toZoomCanvasX(x);
+        const canvasY = toZoomCanvasY(y);
         if (i === 0) ctx.moveTo(canvasX, canvasY);
         else ctx.lineTo(canvasX, canvasY);
       }
@@ -392,8 +586,8 @@ const PotentialSimulator = () => {
         const progress = i / 100;
         const x = validRange.left + (validRange.right - validRange.left) * progress;
         const y = evaluatePolynomial(quadratic, x);
-        const canvasX = toCanvasX(isZoom ? (x - zoomXMin) / (zoomXMax - zoomXMin) : x);
-        const canvasY = toCanvasY(y);
+        const canvasX = toZoomCanvasX(x);
+        const canvasY = toZoomCanvasY(y);
         if (i === 0) ctx.moveTo(canvasX, canvasY);
         else ctx.lineTo(canvasX, canvasY);
       }
@@ -412,11 +606,11 @@ const PotentialSimulator = () => {
       }
     }
     
-    // Draw particle
+    // Draw green particle (quadratic-following)
     if (showParticle && particlePos !== null && validRange) {
       const y = evaluatePolynomial(quadratic, particlePos);
-      const canvasX = toCanvasX(isZoom ? (particlePos - zoomXMin) / (zoomXMax - zoomXMin) : particlePos);
-      const canvasY = toCanvasY(y);
+      const canvasX = toZoomCanvasX(particlePos);
+      const canvasY = toZoomCanvasY(y);
       
       ctx.fillStyle = '#10b981';
       ctx.beginPath();
@@ -424,22 +618,34 @@ const PotentialSimulator = () => {
       ctx.fill();
     }
     
-    // Draw minimum marker
-    if (minimum && !isZoom) {
+    // Draw orange particle (spline-following)
+    if (showParticle && splineParticlePos !== null && validRange && spline) {
+      const y = evaluateCubicSpline(spline, splineParticlePos);
+      const canvasX = toZoomCanvasX(splineParticlePos);
+      const canvasY = toZoomCanvasY(y);
+      
+      ctx.fillStyle = '#f97316'; // Orange color
+      ctx.beginPath();
+      ctx.arc(canvasX, canvasY, 6, 0, 2 * Math.PI);
+      ctx.fill();
+    }
+    
+    // Draw minimum marker (purple dot) - now shown in both views
+    if (minimum) {
       ctx.fillStyle = '#8b5cf6';
       ctx.beginPath();
-      ctx.arc(toCanvasX(minimum.x), toCanvasY(minimum.y), 4, 0, 2 * Math.PI);
+      ctx.arc(toZoomCanvasX(minimum.x), toZoomCanvasY(minimum.y), 4, 0, 2 * Math.PI);
       ctx.fill();
     }
   };
   
   useEffect(() => {
     drawCanvas(canvasRef.current, true);
-  }, [points, polynomial, quadratic, minimum, validRange, particlePos]);
+  }, [points, spline, polynomial, quadratic, minimum, validRange, particlePos, splineParticlePos]);
   
   useEffect(() => {
     drawCanvas(zoomCanvasRef.current, true);
-  }, [polynomial, quadratic, validRange, particlePos]);
+  }, [spline, polynomial, quadratic, validRange, particlePos, splineParticlePos, minimum]);
   
   return (
     <div className="w-full max-w-4xl mx-auto p-6 bg-white rounded-lg shadow-lg">
@@ -454,8 +660,9 @@ const PotentialSimulator = () => {
                 Make sure it has at least one valley (local minimum).
               </p>
               <p className="text-sm text-gray-600">
-                The simulation will fit a polynomial (blue), find the deepest minimum, 
-                fit a quadratic approximation (red dashed), and simulate a particle sliding in the well.
+                The simulation will fit a smooth cubic spline (blue) to your drawing, find the deepest minimum, 
+                fit a quadratic approximation (red dashed) to the region around it, and simulate particles sliding in the well.
+                The green particle follows the quadratic approximation, while the orange particle follows the actual splined curve.
               </p>
             </div>
             <button 
@@ -488,7 +695,7 @@ const PotentialSimulator = () => {
         />
       </div>
       
-      {polynomial && quadratic && (
+      {quadratic && (
         <div className="mb-4">
           <h3 className="text-lg font-semibold mb-2">Zoomed View (Valid Range)</h3>
           <canvas
@@ -502,7 +709,27 @@ const PotentialSimulator = () => {
       
       <div className="flex gap-2">
         <button
-          onClick={() => setSimulating(!simulating)}
+          onClick={() => {
+          if (!simulating) {
+      // Reset both particles to starting position when beginning simulation
+      let startPos = validRange.left + 0.002;
+
+      if(evaluatePolynomial(quadratic, validRange.left) < evaluatePolynomial(quadratic, validRange.right)){
+	    startPos = validRange.right - .002;
+	     }
+      // Set both particles to same starting x position
+      setParticlePos(startPos);
+      setParticleVel(0);
+      particlePosRef.current = startPos;
+      particleVelRef.current = 0;
+      
+      setSplineParticlePos(startPos);
+      setSplineParticleVel(0);
+      splineParticlePosRef.current = startPos;
+      splineParticleVelRef.current = 0;
+      }
+    setSimulating(!simulating)
+    }}
           disabled={!quadratic}
           className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
         >
@@ -529,12 +756,12 @@ const PotentialSimulator = () => {
         )}
       </div>
       
-      {polynomial && (
+      {quadratic && (
         <div className="mt-4 p-3 bg-gray-50 rounded text-sm">
           <div className="grid grid-cols-2 gap-2">
             <div>
               <span className="inline-block w-4 h-4 bg-blue-600 mr-2"></span>
-              <strong>Blue:</strong> 8th degree polynomial fit
+              <strong>Blue:</strong> Cubic spline fit
             </div>
             <div>
               <span className="inline-block w-4 h-4 bg-red-600 mr-2"></span>
@@ -546,7 +773,11 @@ const PotentialSimulator = () => {
             </div>
             <div>
               <span className="inline-block w-4 h-4 bg-green-600 rounded-full mr-2"></span>
-              <strong>Green:</strong> Particle
+              <strong>Green:</strong> Quadratic particle
+            </div>
+            <div>
+              <span className="inline-block w-4 h-4 bg-orange-600 rounded-full mr-2"></span>
+              <strong>Orange:</strong> Spline particle
             </div>
           </div>
         </div>
