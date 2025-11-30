@@ -262,21 +262,22 @@ const PotentialSimulator = () => {
     return fitPolynomial(samples, 2);
   };
   
-  const findValidRange = (poly, quad, minX, tolerance = 0.03) => {
+   
+  const findValidRangeFromSpline = (spline, quad, minX, tolerance = 0.02) => {
     let leftX = minX;
     let rightX = minX;
     const step = 0.01;
     
     // Find left boundary
     for (let x = minX; x >= 0; x -= step) {
-      const diff = Math.abs(evaluatePolynomial(poly, x) - evaluatePolynomial(quad, x));
+      const diff = Math.abs(evaluateCubicSpline(spline, x) - evaluatePolynomial(quad, x));
       if (diff > tolerance) break;
       leftX = x;
     }
     
     // Find right boundary
     for (let x = minX; x <= 1; x += step) {
-      const diff = Math.abs(evaluatePolynomial(poly, x) - evaluatePolynomial(quad, x));
+      const diff = Math.abs(evaluateCubicSpline(spline, x) - evaluatePolynomial(quad, x));
       if (diff > tolerance) break;
       rightX = x;
     }
@@ -358,9 +359,8 @@ const PotentialSimulator = () => {
     }
     setQuadratic(quad);
     
-    // Find valid range where quadratic approximation is good
-    const polyFit = fitPolynomial(points, 8);
-    const range = findValidRange(polyFit, quad, deepestMin.x);
+    // Find valid range where quadratic approximation is good (compare to spline, not polynomial)
+    const range = findValidRangeFromSpline(splineResult, quad, deepestMin.x);
     setValidRange(range);
     
     setError('');
@@ -393,12 +393,14 @@ const PotentialSimulator = () => {
   
   // Animation loop
   useEffect(() => {
+  let doneOneQ = false;
+   let doneOneS = false;
     if (!simulating || !quadratic || !validRange || !spline) return;
     
     const animate = () => {
       const dt = 0.016; // ~60fps
       const k = 50; // Spring constant for quadratic
-      const m = 10; // Mass
+      const m = 1; // Mass
       
       // Update quadratic-following particle (green)
       let x = particlePosRef.current;
@@ -416,13 +418,16 @@ const PotentialSimulator = () => {
         x += v * dt;
         
         // Reflect at boundaries
-        if (x < validRange.left) {
-          x = validRange.left;
-          v = -v * 0.99;
+        if (x < validRange.left+.002 && doneOneQ) {
+           x = validRange.left;
+         v = 0;
         }
-        if (x > validRange.right) {
+        else if (x > validRange.right-.002 && doneOneQ) {
           x = validRange.right;
-          v = -v * 0.99;
+          v = 0;
+        }
+        else{
+        doneOneQ = true;
         }
         
         particlePosRef.current = x;
@@ -444,13 +449,16 @@ const PotentialSimulator = () => {
         xSpline += vSpline * dt;
         
         // Reflect at boundaries (use same boundaries as quadratic for consistency)
-        if (xSpline < validRange.left) {
+        if (xSpline < validRange.left+.003 && doneOneS) {
           xSpline = validRange.left;
-          vSpline = -vSpline * 0.99;
+          vSpline = 0;
         }
-        if (xSpline > validRange.right) {
-          xSpline = validRange.right;
-          vSpline = -vSpline * 0.99;
+        else if (xSpline > validRange.right-.003 && doneOneS) {
+         xSpline = validRange.right;
+          vSpline = 0;
+        }
+        else{
+        doneOneS = true;
         }
         
         splineParticlePosRef.current = xSpline;
