@@ -787,9 +787,10 @@ const PotentialSimulator = () => {
                 Make sure it has at least one valley (local minimum). Optionally select a polynomial degree to fit a global polynomial to your curve.
               </p>
               <p className="text-sm text-gray-600">
-                The simulation will fit a curve (cubic spline or polynomial, shown in blue) to your drawing, find the deepest minimum, 
+                The simulation will find the deepest minimum, 
                 fit a quadratic approximation (red dashed) to the region around it, and simulate particles sliding in the well.
-                The green particle follows the quadratic approximation, while the orange particle follows the actual fitted curve.
+                The green particle follows the quadratic approximation, while the orange particle follows the actual fitted curve. 
+                You'll notice they move very similarly, demonstrating that just about any smooth continuous function around a local minimum can be approximated locally by a simple quadratic.
               </p>
             </div>
             <button 
@@ -933,7 +934,7 @@ const PotentialSimulator = () => {
           <div className="grid grid-cols-2 gap-2">
             <div className="text-gray-800">
               <span className="inline-block w-4 h-4 bg-blue-600 mr-2"></span>
-              <strong>Blue:</strong> {globalPolynomial ? `${polynomialDegree}-degree polynomial` : 'Cubic spline fit'}
+              <strong>Blue:</strong> {globalPolynomial ? `${polynomialDegree}-degree polynomial` : 'Original (with some smoothing)'}
             </div>
             <div className="text-gray-800">
               <span className="inline-block w-4 h-4 bg-red-600 mr-2"></span>
@@ -949,7 +950,7 @@ const PotentialSimulator = () => {
             </div>
             <div className="text-gray-800">
               <span className="inline-block w-4 h-4 bg-orange-600 rounded-full mr-2"></span>
-              <strong>Orange:</strong> Spline particle
+              <strong>Orange:</strong> {globalPolynomial ? `${polynomialDegree}-degree particle` : 'Original particle'}
             </div>
           </div>
         </div>

@@ -789,9 +789,20 @@ const EnergyGame = () => {
             Energy Physics Puzzle
           </h1>
           <p className="text-gray-300 mb-8">
-            Master kinetic, potential, and spring energy to open doors and
-            progress through levels!
-          </p>
+            Store, harness, and gain energy to reach the critical value to unlock the door to the next level!
+            You will compress springs, change the spring constant, move a rock up and down, and move yourself at different speeds all to adjust the total energy of the game to reach the critical value (within 5 points).</p>
+            
+           <p> <strong>Controls:</strong> </p>
+            
+            <p> <strong>WASD/Arrows</strong>: Move  </p>
+             <p><strong>Shift</strong>: Turbo Speed</p>
+             <p><strong>e</strong>: Press the K-changing button</p>
+             <p><strong>r/f</strong>:Pulley Up/Down </p>
+             <p><strong>x</strong>:Reset Springs</p>
+             
+             <p> .</p>
+            
+        
           <div className="space-y-4">
             <button
               onClick={() => startGame(1)}
