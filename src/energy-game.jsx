@@ -9,7 +9,7 @@ const EnergyGame = () => {
   const [hoveredElement, setHoveredElement] = useState(null);
   
   const GRAVITY = 0.5;
-  const PLAYER_WALK_SPEED = 3;
+  const PLAYER_WALK_SPEED = 6;
   const PLAYER_RUN_SPEED = 6;
   const PLAYER_TURBO_SPEED = 10;
   const JUMP_FORCE = -12;
@@ -607,17 +607,19 @@ const EnergyGame = () => {
         ctx.restore();
         
         if (!barrier.open) {
-          ctx.fillStyle = '#FFD700';
-          ctx.font = '11px monospace';
+          ctx.fillStyle = '#FF0000';
+          ctx.font = '12px monospace';
           const conditionText = barrier.openWhen === 'below' 
-            ? `E<${barrier.threshold}` 
-            : `E>${barrier.threshold}`;
+            ? `Opens when E<${barrier.threshold}` 
+            : `Opens when E>${barrier.threshold}`;
           
           if (barrier.type === 'vertical') {
-            ctx.fillText(conditionText, barrier.x - 40, barrier.y + 20);
+            ctx.fillText(conditionText, barrier.x + 25,  barrier.y + barrier.height/5 );
           } else {
-            ctx.fillText(conditionText, barrier.x + 5, barrier.y - 5);
+          
+            ctx.fillText(conditionText, barrier.x , barrier.y - 5);
           }
+           ctx.restore();
         }
       });
       

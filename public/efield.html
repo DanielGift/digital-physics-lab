@@ -145,7 +145,7 @@
         const SEGMENT_LENGTH = 300; // Length of the line segment
         const SEGMENT_WIDTH = 20; // Width of the line segment
         const SEMICIRCLE_CENTER_X = 400; // X-coordinate of semicircle center (fixed)
-        const SEMICIRCLE_CENTER_Y = 450; // Y-coordinate of semicircle center (fixed) - near bottom
+        const SEMICIRCLE_CENTER_Y = 520; // Y-coordinate of semicircle center (fixed) - near bottom
         const SEGMENT_CENTER_X = 400; // X-coordinate of segment center (fixed)
         const SEGMENT_CENTER_Y = 480; // Y-coordinate of segment center (fixed) - in lower third
         let SHAPE_CENTER_X = 400; // Current shape center X
@@ -170,7 +170,7 @@
                 // Outer boundary - wider than the semicircle
                 BOUNDARY_LEFT = SHAPE_CENTER_X - RADIUS - 100;
                 BOUNDARY_RIGHT = SHAPE_CENTER_X + RADIUS + 100;
-                BOUNDARY_TOP = SHAPE_CENTER_Y - RADIUS - BOUNDARY_PADDING;
+                BOUNDARY_TOP = SHAPE_CENTER_Y - RADIUS -2* BOUNDARY_PADDING;
                 BOUNDARY_BOTTOM = canvas.height - 20;
                 
                 // Inner boundary (exclusion zone around the ring)
@@ -543,7 +543,8 @@
             ctx.lineWidth = lineWidth;
             ctx.beginPath();
             ctx.moveTo(startX, startY);
-            ctx.lineTo(endX, endY);
+            ctx.lineTo(endX - headLength/2*Math.sqrt(3) * Math.cos(angle),
+                endY - headLength/2*Math.sqrt(3) * Math.sin(angle));
             ctx.stroke();
             
             ctx.fillStyle = color;
@@ -590,9 +591,9 @@
             // If net field points up (negative Y), start accumulation near the shape
             if (netY < 0) {
                 if (currentShape === 'semicircle') {
-                    ACCUMULATION_START_Y = SHAPE_CENTER_Y - RADIUS - 80;
+                    ACCUMULATION_START_Y = SHAPE_CENTER_Y - RADIUS - 100;
                 } else {
-                    ACCUMULATION_START_Y = SHAPE_CENTER_Y - 100;
+                    ACCUMULATION_START_Y = SHAPE_CENTER_Y - 110;
                 }
                 accumulationLabelBelow = true; // Label goes below
             } else {
@@ -643,9 +644,9 @@
                 for (let vec of accumulatedVectors) {
                     endY += vec.y;
                 }
-                ctx.fillText('Accumulated Field Vectors:', ACCUMULATION_START_X, endY + 25);
+                ctx.fillText('Accumulated Field Vectors:', ACCUMULATION_START_X, ACCUMULATION_START_Y + 15);
             } else {
-                ctx.fillText('Accumulated Field Vectors:', ACCUMULATION_START_X, ACCUMULATION_START_Y - 15);
+                ctx.fillText('Accumulated Field Vectors:', ACCUMULATION_START_X, ACCUMULATION_START_Y - 10);
             }
             ctx.textAlign = 'left';
             
@@ -678,11 +679,20 @@
                 
                 ctx.fillStyle = '#ff0000';
                 ctx.font = 'bold 14px Arial';
-                ctx.fillText(
-                    'Total E-field',
-                    currentX + 10,
-                    currentY
-                );
+                if (accumulationLabelBelow) {
+        		        ctx.fillText(
+ 		                   'Total E-field',
+		                    currentX + 15,
+   		                 currentY
+       		         );
+		         }
+		else{
+		ctx.fillText(
+ 		                   'Total E-field',
+		                    currentX + 15,
+   		                 currentY+ 15
+       		         );
+		}
             }
         }
         
