@@ -17,6 +17,9 @@ const PotentialSimulator = () => {
   const [splineParticleVel, setSplineParticleVel] = useState(0);
   const [error, setError] = useState('');
   const [showInfo, setShowInfo] = useState(true);
+  // State for polynomial degree selection
+  const [polynomialDegree, setPolynomialDegree] = useState('none');
+  const [globalPolynomial, setGlobalPolynomial] = useState(null);
   
   const canvasRef = useRef(null);
   const zoomCanvasRef = useRef(null);
@@ -119,18 +122,47 @@ const PotentialSimulator = () => {
     // Sort points by x
     const sorted = [...points].sort((a, b) => a.x - b.x);
     
+    // Remove duplicate x values - for duplicates, average the y values
+    const uniqueX = [];
+    const tolerance = 0.001; // Small tolerance for floating point comparison
+    
+    let i = 0;
+    while (i < sorted.length) {
+      let sumY = sorted[i].y;
+      let count = 1;
+      let j = i + 1;
+      
+      // Find all points with similar x values and average their y values
+      while (j < sorted.length && Math.abs(sorted[j].x - sorted[i].x) < tolerance) {
+        sumY += sorted[j].y;
+        count++;
+        j++;
+      }
+      
+      // Add the averaged point
+      uniqueX.push({
+        x: sorted[i].x,
+        y: sumY / count
+      });
+      
+      i = j;
+    }
+    
+    // If we don't have enough unique points after removing duplicates, return null
+    if (uniqueX.length < 2) return null;
+    
     // Reduce points to avoid having too many at similar x values
     // Keep approximately 50-100 well-distributed points
-    const targetPoints = Math.min(80, Math.max(20, Math.floor(n / 5)));
+    const targetPoints = Math.min(80, Math.max(20, Math.floor(uniqueX.length / 5)));
     const reduced = [];
-    const step = Math.max(1, Math.floor(sorted.length / targetPoints));
+    const step = Math.max(1, Math.floor(uniqueX.length / targetPoints));
     
-    for (let i = 0; i < sorted.length; i += step) {
-      reduced.push(sorted[i]);
+    for (let i = 0; i < uniqueX.length; i += step) {
+      reduced.push(uniqueX[i]);
     }
     // Always include the last point
-    if (reduced[reduced.length - 1] !== sorted[sorted.length - 1]) {
-      reduced.push(sorted[sorted.length - 1]);
+    if (reduced[reduced.length - 1] !== uniqueX[uniqueX.length - 1]) {
+      reduced.push(uniqueX[uniqueX.length - 1]);
     }
     
     // Extract x and y arrays from reduced set
@@ -333,6 +365,20 @@ const PotentialSimulator = () => {
     }
     setSpline(splineResult);
     
+    // Fit global polynomial if selected
+    let globalPolyResult = null;
+    if (polynomialDegree !== 'none') {
+      const degree = parseInt(polynomialDegree);
+      globalPolyResult = fitPolynomial(points, degree);
+      if (!globalPolyResult) {
+        setError(`Could not fit ${degree}-degree polynomial to the points`);
+        return;
+      }
+      setGlobalPolynomial(globalPolyResult);
+    } else {
+      setGlobalPolynomial(null);
+    }
+    
     // Find local minima
     const minima = findLocalMinimaFromSpline(splineResult, 0, 1);
     
@@ -361,6 +407,19 @@ const PotentialSimulator = () => {
     
     // Find valid range where quadratic approximation is good (compare to spline, not polynomial)
     const range = findValidRangeFromSpline(splineResult, quad, deepestMin.x);
+    
+    // Check if valid range is too small
+    const rangeSize = range.right - range.left;
+    const minRangeSize = 0.05; // Minimum range size (5% of total width)
+    
+    if (rangeSize < minRangeSize) {
+      setError(`Valid range too small (${(rangeSize * 100).toFixed(1)}% of width). Please draw a smoother, wider valley. Try making your minimum less sharp.`);
+      setQuadratic(null);
+      setMinimum(null);
+      setValidRange(null);
+      return;
+    }
+    
     setValidRange(range);
     
     setError('');
@@ -378,17 +437,61 @@ const PotentialSimulator = () => {
     setParticleVel(0);
     setSplineParticlePos(null);
     setSplineParticleVel(0);
+    setGlobalPolynomial(null);
     setError('');
     if (animationRef.current) {
       cancelAnimationFrame(animationRef.current);
     }
   };
   
-  // Numerical derivative for spline (finite difference)
-  const getSplineDerivative = (spline, x, h = 0.0001) => {
-    const y1 = evaluateCubicSpline(spline, x + h);
-    const y2 = evaluateCubicSpline(spline, x - h);
-    return (y1 - y2) / (2 * h);
+  // Analytical derivative for cubic spline
+  const getSplineDerivative = (spline, xVal) => {
+    if (!spline) return 0;
+    
+    const { x, y, M, h } = spline;
+    const n = x.length;
+    
+    // Handle boundary cases
+    if (xVal <= x[0]) {
+      // Use derivative at the first interval
+      const t = 0;
+      const hi = h[0];
+      const a = M[0] / (6 * hi);
+      const b = M[1] / (6 * hi);
+      const c = (y[0] / hi) - (M[0] * hi / 6);
+      const d = (y[1] / hi) - (M[1] * hi / 6);
+      return -3 * a * hi * hi + 3 * b * 0 - c + d;
+    }
+    if (xVal >= x[n - 1]) {
+      // Use derivative at the last interval
+      const i = n - 2;
+      const t = h[i];
+      const hi = h[i];
+      const a = M[i] / (6 * hi);
+      const b = M[i + 1] / (6 * hi);
+      const c = (y[i] / hi) - (M[i] * hi / 6);
+      const d = (y[i + 1] / hi) - (M[i + 1] * hi / 6);
+      return -3 * a * 0 + 3 * b * t * t - c + d;
+    }
+    
+    // Find the interval containing xVal
+    let i = 0;
+    for (i = 0; i < n - 1; i++) {
+      if (xVal >= x[i] && xVal <= x[i + 1]) break;
+    }
+    
+    // Compute derivative of cubic polynomial on this interval
+    // Original spline: S(x) = a(hi-t)³ + bt³ + c(hi-t) + dt
+    // Derivative: S'(x) = -3a(hi-t)² + 3bt² - c + d
+    const t = xVal - x[i];
+    const hi = h[i];
+    
+    const a = M[i] / (6 * hi);
+    const b = M[i + 1] / (6 * hi);
+    const c = (y[i] / hi) - (M[i] * hi / 6);
+    const d = (y[i + 1] / hi) - (M[i + 1] * hi / 6);
+    
+    return -3 * a * Math.pow(hi - t, 2) + 3 * b * Math.pow(t, 2) - c + d;
   };
   
   // Animation loop
@@ -568,14 +671,30 @@ const PotentialSimulator = () => {
       ctx.stroke();
     }
     
-    // Draw cubic spline
-    if (spline) {
+    // Draw cubic spline (only if no global polynomial is selected)
+    if (spline && !globalPolynomial) {
       ctx.strokeStyle = '#3b82f6';
       ctx.lineWidth = 2;
       ctx.beginPath();
       for (let i = 0; i <= 200; i++) {
         const x = isZoom ? zoomXMin + (zoomXMax - zoomXMin) * i / 200 : i / 200;
         const y = evaluateCubicSpline(spline, x);
+        const canvasX = toZoomCanvasX(x);
+        const canvasY = toZoomCanvasY(y);
+        if (i === 0) ctx.moveTo(canvasX, canvasY);
+        else ctx.lineTo(canvasX, canvasY);
+      }
+      ctx.stroke();
+    }
+    
+    // Draw global polynomial if fitted (as solid blue line)
+    if (globalPolynomial) {
+      ctx.strokeStyle = '#3b82f6';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (let i = 0; i <= 200; i++) {
+        const x = isZoom ? zoomXMin + (zoomXMax - zoomXMin) * i / 200 : i / 200;
+        const y = evaluatePolynomial(globalPolynomial, x);
         const canvasX = toZoomCanvasX(x);
         const canvasY = toZoomCanvasY(y);
         if (i === 0) ctx.moveTo(canvasX, canvasY);
@@ -638,9 +757,9 @@ const PotentialSimulator = () => {
       ctx.fill();
     }
     
-    // Draw minimum marker (purple dot) - now shown in both views
+    // Draw minimum marker (cyan dot) - now shown in both views
     if (minimum) {
-      ctx.fillStyle = '#8b5cf6';
+      ctx.fillStyle = '#06b6d4';
       ctx.beginPath();
       ctx.arc(toZoomCanvasX(minimum.x), toZoomCanvasY(minimum.y), 4, 0, 2 * Math.PI);
       ctx.fill();
@@ -649,11 +768,11 @@ const PotentialSimulator = () => {
   
   useEffect(() => {
     drawCanvas(canvasRef.current, true);
-  }, [points, spline, polynomial, quadratic, minimum, validRange, particlePos, splineParticlePos]);
+  }, [points, spline, polynomial, quadratic, minimum, validRange, particlePos, splineParticlePos, globalPolynomial]);
   
   useEffect(() => {
     drawCanvas(zoomCanvasRef.current, true);
-  }, [spline, polynomial, quadratic, validRange, particlePos, splineParticlePos, minimum]);
+  }, [spline, polynomial, quadratic, validRange, particlePos, splineParticlePos, minimum, globalPolynomial]);
   
   return (
     <div className="w-full max-w-4xl mx-auto p-6 bg-white rounded-lg shadow-lg">
@@ -665,12 +784,12 @@ const PotentialSimulator = () => {
             <div className="flex-1">
               <p className="text-sm text-gray-700 mb-2">
                 <strong>Instructions:</strong> Draw a potential energy curve by clicking and dragging. 
-                Make sure it has at least one valley (local minimum).
+                Make sure it has at least one valley (local minimum). Optionally select a polynomial degree to fit a global polynomial to your curve.
               </p>
               <p className="text-sm text-gray-600">
-                The simulation will fit a smooth cubic spline (blue) to your drawing, find the deepest minimum, 
+                The simulation will fit a curve (cubic spline or polynomial, shown in blue) to your drawing, find the deepest minimum, 
                 fit a quadratic approximation (red dashed) to the region around it, and simulate particles sliding in the well.
-                The green particle follows the quadratic approximation, while the orange particle follows the actual splined curve.
+                The green particle follows the quadratic approximation, while the orange particle follows the actual fitted curve.
               </p>
             </div>
             <button 
@@ -682,6 +801,51 @@ const PotentialSimulator = () => {
           </div>
         </div>
       )}
+      
+      <div className="mb-4">
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Global Polynomial Fit (Optional)
+        </label>
+        <div className="flex flex-wrap gap-4">
+          <label className="flex items-center">
+            <input
+              type="radio"
+              value="none"
+              checked={polynomialDegree === 'none'}
+              onChange={(e) => setPolynomialDegree(e.target.value)}
+              disabled={isDrawing || simulating}
+              className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 disabled:cursor-not-allowed"
+            />
+            <span className="text-sm text-gray-700">No polynomial fit</span>
+          </label>
+          <label className="flex items-center">
+            <input
+              type="radio"
+              value="8"
+              checked={polynomialDegree === '8'}
+              onChange={(e) => setPolynomialDegree(e.target.value)}
+              disabled={isDrawing || simulating}
+              className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 disabled:cursor-not-allowed"
+            />
+            <span className="text-sm text-gray-700">8-degree</span>
+          </label>
+          <label className="flex items-center">
+            <input
+              type="radio"
+              value="16"
+              checked={polynomialDegree === '16'}
+              onChange={(e) => setPolynomialDegree(e.target.value)}
+              disabled={isDrawing || simulating}
+              className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 disabled:cursor-not-allowed"
+            />
+            <span className="text-sm text-gray-700">16-degree</span>
+          </label>
+          
+        </div>
+        <p className="mt-1 text-xs text-gray-500">
+          Optional: Fit a high-degree polynomial to your entire curve (will replace the spline as the blue line)
+        </p>
+      </div>
       
       {error && (
         <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded text-red-700">
@@ -765,25 +929,25 @@ const PotentialSimulator = () => {
       </div>
       
       {quadratic && (
-        <div className="mt-4 p-3 bg-gray-50 rounded text-sm">
+        <div className="mt-4 p-3 bg-gray-50 rounded text-sm text-gray-800">
           <div className="grid grid-cols-2 gap-2">
-            <div>
+            <div className="text-gray-800">
               <span className="inline-block w-4 h-4 bg-blue-600 mr-2"></span>
-              <strong>Blue:</strong> Cubic spline fit
+              <strong>Blue:</strong> {globalPolynomial ? `${polynomialDegree}-degree polynomial` : 'Cubic spline fit'}
             </div>
-            <div>
+            <div className="text-gray-800">
               <span className="inline-block w-4 h-4 bg-red-600 mr-2"></span>
               <strong>Red (dashed):</strong> Quadratic approximation
             </div>
-            <div>
-              <span className="inline-block w-4 h-4 bg-purple-600 rounded-full mr-2"></span>
-              <strong>Purple:</strong> Local minimum
+            <div className="text-gray-800">
+              <span className="inline-block w-4 h-4 bg-cyan-500 rounded-full mr-2"></span>
+              <strong>Cyan dot:</strong> Local minimum
             </div>
-            <div>
+            <div className="text-gray-800">
               <span className="inline-block w-4 h-4 bg-green-600 rounded-full mr-2"></span>
               <strong>Green:</strong> Quadratic particle
             </div>
-            <div>
+            <div className="text-gray-800">
               <span className="inline-block w-4 h-4 bg-orange-600 rounded-full mr-2"></span>
               <strong>Orange:</strong> Spline particle
             </div>
