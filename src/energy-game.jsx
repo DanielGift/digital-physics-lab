@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, RotateCcw } from 'lucide-react';
+import { Play, RotateCcw, Info } from 'lucide-react';
 
 const EnergyGame = () => {
   const canvasRef = useRef(null);
@@ -7,6 +7,7 @@ const EnergyGame = () => {
   const [currentLevel, setCurrentLevel] = useState(1);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [hoveredElement, setHoveredElement] = useState(null);
+  const [showValuesSidebar, setShowValuesSidebar] = useState(false);
   
   const GRAVITY = 0.5;
   const PLAYER_WALK_SPEED = 6;
@@ -821,19 +822,109 @@ const EnergyGame = () => {
       )}
 
       {gameState === 'playing' && (
-        <div className="flex flex-col items-center gap-4">
-          <canvas
-            ref={canvasRef}
-            width={800}
-            height={500}
-            className="border-4 border-gray-700 rounded-lg shadow-2xl"
-          />
-          <button
-            onClick={resetLevel}
-            className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-6 py-2 rounded-lg font-bold transition"
-          >
-            <RotateCcw size={20} /> Reset Level
-          </button>
+        <div className="flex items-start gap-0">
+          <div className="flex flex-col items-center gap-4">
+            <canvas
+              ref={canvasRef}
+              width={800}
+              height={500}
+              className="border-4 border-gray-700 rounded-lg shadow-2xl"
+            />
+            <div className="flex gap-4">
+              <button
+                onClick={resetLevel}
+                className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-6 py-2 rounded-lg font-bold transition"
+              >
+                <RotateCcw size={20} /> Reset Level
+              </button>
+              <button
+                onClick={() => setShowValuesSidebar(!showValuesSidebar)}
+                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-bold transition"
+              >
+                <Info size={20} /> {showValuesSidebar ? 'Hide' : 'Show'} Values
+              </button>
+            </div>
+          </div>
+          
+          {showValuesSidebar && (
+            <div className="bg-gray-800 border-4 border-gray-700 rounded-lg shadow-2xl p-6 ml-4 w-80 h-[500px] overflow-y-auto">
+              <h2 className="text-xl font-bold mb-4 text-yellow-400">Numerical Values</h2>
+              
+              <div className="space-y-4">
+                <div className="border-b border-gray-600 pb-3">
+                  <h3 className="font-bold text-green-400 mb-2">Player</h3>
+                  <div className="text-sm space-y-1">
+                    <p><span className="text-gray-400">Mass:</span> 1 kg</p>
+                    <p><span className="text-gray-400">Walk Speed:</span> {PLAYER_WALK_SPEED} units/s</p>
+                    <p><span className="text-gray-400">Turbo Speed:</span> {PLAYER_TURBO_SPEED} units/s</p>
+                  </div>
+                </div>
+                
+                {gameRef.current.pulleyRocks.length > 0 && (
+                  <div className="border-b border-gray-600 pb-3">
+                    <h3 className="font-bold text-green-400 mb-2">Pulley Block</h3>
+                    {gameRef.current.pulleyRocks.map((rock, idx) => {
+                      const rockHeight = 450 - (rock.y + rock.height);
+                      return (
+                        <div key={idx} className="text-sm space-y-1 mb-3">
+                          <p><span className="text-gray-400">Mass:</span> {rock.mass} kg</p>
+                           {PULLEY_LEVELS.length > 0 && (
+                  <div>
+                    <h3 className="font-bold text-green-400 mb-2">Pulley Levels</h3>
+                    <div className="text-sm space-y-1">
+                      {PULLEY_LEVELS.map((level, idx) => (
+                        <p key={idx}><span className="text-gray-400">Level {idx + 1}:</span> y = {455-level}</p>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                
+                {gameRef.current.springs.length > 0 && (
+                  <div className="border-b border-gray-600 pb-3">
+                    <h3 className="font-bold text-green-400 mb-2">Springs</h3>
+                    {gameRef.current.springs.map((spring, idx) => {
+                      const compression = spring.naturalLength - spring.currentLength;
+                      const k = SPRING_CONSTANTS[spring.constantIndex];
+                      return (
+                        <div key={idx} className="text-sm space-y-1 mb-3">
+                          <p className="text-yellow-300">Spring {idx + 1}:</p>
+                          <p><span className="text-gray-400">Spring Constant (k):</span> {k.toFixed(3)}</p>
+                          <p><span className="text-gray-400">Locked compression (Δx):</span> {SPRING_LOCK_COMPRESSION} </p>
+                    <p><span className="font-bold text-green-400 mb-2">Spring Constants:</span></p>
+                    <div className="ml-4">
+                      {SPRING_CONSTANTS.map((k, idx) => (
+                        <p key={idx} className="text-xs"><span className="text-gray-400">k{idx + 1}:</span> {k.toFixed(3)}</p>
+                      ))}
+                    </div>                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                
+                <div className="border-b border-gray-600 pb-3">
+                  <h3 className="font-bold text-green-400 mb-2">Constants</h3>
+                  <div className="text-sm space-y-1">
+                    <p><span className="text-gray-400">Gravity:</span> {GRAVITY}</p>
+                  </div>
+                </div>
+                
+                <div>
+                  <h3 className="font-bold text-green-400 mb-2">Platform Heights</h3>
+                  <div className="text-sm space-y-1">
+                    {gameRef.current.platforms.map((platform, idx) => (
+                      <p key={idx}><span className="text-gray-400">Platform {idx + 1}:</span> y = {450-platform.y}</p>
+                    ))}
+                  </div>
+                </div>
+               
+              </div>
+            </div>
+          )}
         </div>
       )}
 
