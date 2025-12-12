@@ -331,10 +331,16 @@
                         return true;
                     }
                 }
-                // Also exclude the solid semicircular region above the ring
-           //     if (y < SHAPE_CENTER_Y && distance < innerRadius) {
-              //      return true;
-              //  }
+                
+                // Add padding at the bottom of the semicircle
+                // Create a rectangular exclusion zone below the baseline
+                if (y > SHAPE_CENTER_Y && y < SHAPE_CENTER_Y + INNER_PADDING) {
+                    // Check if horizontally within the semicircle's extent (with padding)
+                    if (x > SHAPE_CENTER_X - outerRadius && x < SHAPE_CENTER_X + outerRadius) {
+                        return true;
+                    }
+                }
+                
                 return false;
             } else { // segment
                 // Simple rectangular exclusion zone
@@ -406,14 +412,19 @@
                 ctx.arc(SHAPE_CENTER_X, SHAPE_CENTER_Y, innerRadius, Math.PI, 0, false);
                 ctx.stroke();
                 
-                // Draw side lines
+                // Draw left side - from outer arc down, then to inner arc
                 ctx.beginPath();
                 ctx.moveTo(SHAPE_CENTER_X - outerRadius, SHAPE_CENTER_Y);
+                ctx.lineTo(SHAPE_CENTER_X - outerRadius, SHAPE_CENTER_Y + INNER_PADDING);
+                ctx.lineTo(SHAPE_CENTER_X - innerRadius, SHAPE_CENTER_Y + INNER_PADDING);
                 ctx.lineTo(SHAPE_CENTER_X - innerRadius, SHAPE_CENTER_Y);
                 ctx.stroke();
                 
+                // Draw right side - from outer arc down, then to inner arc
                 ctx.beginPath();
                 ctx.moveTo(SHAPE_CENTER_X + outerRadius, SHAPE_CENTER_Y);
+                ctx.lineTo(SHAPE_CENTER_X + outerRadius, SHAPE_CENTER_Y + INNER_PADDING);
+                ctx.lineTo(SHAPE_CENTER_X + innerRadius, SHAPE_CENTER_Y + INNER_PADDING);
                 ctx.lineTo(SHAPE_CENTER_X + innerRadius, SHAPE_CENTER_Y);
                 ctx.stroke();
             } else { // segment

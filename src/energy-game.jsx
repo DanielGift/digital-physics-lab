@@ -811,12 +811,12 @@ const EnergyGame = () => {
             >
               <Play size={20} /> Start Level 1
             </button>
-            <button
-              onClick={() => startGame(2)}
-              className="flex items-center justify-center gap-2 w-full bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-bold transition"
-            >
-              <Play size={20} /> Start Level 2
-            </button>
+%            <button
+%              onClick={() => startGame(2)}
+%              className="flex items-center justify-center gap-2 w-full bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-bold transition"
+%            >
+%              <Play size={20} /> Start Level 2
+%            </button>
           </div>
         </div>
       )}

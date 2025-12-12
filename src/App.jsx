@@ -2,6 +2,7 @@ import React from "react";
 import { Routes, Route, Link } from "react-router-dom";
 import EnergyGame from "./energy-game.jsx";
 import PotentialSimulator from "./harmonic.jsx";
+import CircuitWaterGame from "./circuit.jsx";
 
 function Home() {
   return (
@@ -37,6 +38,13 @@ function Home() {
             extended object.
           </p>
         </a>
+	<Link to="/circuit" className="sim-card">
+          <div className="sim-icon">💡</div>
+          <h2 className="sim-title">Circuit Flow Visualization</h2>
+          <p className="sim-description">
+            Build an analogy to the flow of current in a circuit with water!
+          </p>
+        </Link>
       </div>
 
       <footer>
@@ -52,6 +60,7 @@ export default function App() {
       <Route path="/" element={<Home />} />
       <Route path="/energy-game" element={<EnergyGame />} />
       <Route path="/harmonic" element={<PotentialSimulator />} />
+      <Route path="/circuit" element={<CircuitWaterGame />} />
     </Routes>
   );
 }
