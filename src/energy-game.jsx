@@ -171,16 +171,22 @@ const EnergyGame = () => {
     let animationId;
     
     const handleKeyDown = (e) => {
-      game.keys[e.key] = true;
+	const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+      game.keys[key] = true;
       if (e.key === 'Shift' && game.player.speedMode === 'walk') {
         game.player.speedMode = 'turbo';
       }
     };
     
     const handleKeyUp = (e) => {
-      game.keys[e.key] = false;
+	const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+      game.keys[key] = false;
       if (e.key === 'Shift') {
         game.player.speedMode = 'walk';
+      }
+      if (!game.keys['ArrowLeft'] && !game.keys['ArrowRight'] && 
+        !game.keys['a'] && !game.keys['d']) {
+       game.player.vx = 0;
       }
 
     };
@@ -811,12 +817,7 @@ const EnergyGame = () => {
             >
               <Play size={20} /> Start Level 1
             </button>
-//            <button
-//              onClick={() => startGame(2)}
-//               className="flex items-center justify-center gap-2 w-full bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-bold transition"
-            >
-//              <Play size={20} /> Start Level 2
-//            </button>
+
           </div>
         </div>
       )}
