@@ -151,18 +151,63 @@ const PotentialSimulator = () => {
     // If we don't have enough unique points after removing duplicates, return null
     if (uniqueX.length < 2) return null;
     
-    // Reduce points to avoid having too many at similar x values
-    // Keep approximately 50-100 well-distributed points
-    const targetPoints = Math.min(80, Math.max(20, Math.floor(uniqueX.length / 5)));
-    const reduced = [];
-    const step = Math.max(1, Math.floor(uniqueX.length / targetPoints));
+    // Adaptive point reduction based on curvature
+    // This preserves important features while reducing redundant points
+    const reduced = [uniqueX[0]]; // Always keep first point
     
-    for (let i = 0; i < uniqueX.length; i += step) {
-      reduced.push(uniqueX[i]);
-    }
-    // Always include the last point
-    if (reduced[reduced.length - 1] !== uniqueX[uniqueX.length - 1]) {
-      reduced.push(uniqueX[uniqueX.length - 1]);
+    if (uniqueX.length <= 150) {
+      // If we have 150 or fewer points, keep them all
+      uniqueX.slice(1).forEach(p => reduced.push(p));
+    } else {
+      // Calculate approximate curvature at each point
+      const curvatures = [];
+      for (let i = 1; i < uniqueX.length - 1; i++) {
+        const dx1 = uniqueX[i].x - uniqueX[i-1].x;
+        const dy1 = uniqueX[i].y - uniqueX[i-1].y;
+        const dx2 = uniqueX[i+1].x - uniqueX[i].x;
+        const dy2 = uniqueX[i+1].y - uniqueX[i].y;
+        
+        // Approximate curvature using angle change
+        const angle1 = Math.atan2(dy1, dx1);
+        const angle2 = Math.atan2(dy2, dx2);
+        let angleDiff = Math.abs(angle2 - angle1);
+        if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
+        
+        curvatures.push({ index: i, curvature: angleDiff, point: uniqueX[i] });
+      }
+      
+      // Sort by curvature (descending) and take top points based on importance
+      curvatures.sort((a, b) => b.curvature - a.curvature);
+      
+      // Keep points with high curvature - be more generous
+      const targetPoints = Math.min(120, uniqueX.length);
+      const importantIndices = new Set([0, uniqueX.length - 1]); // Keep first and last
+      
+      // Add high-curvature points (60% of target)
+      const highCurvatureCount = Math.floor(targetPoints * 0.6);
+      for (let i = 0; i < Math.min(highCurvatureCount, curvatures.length); i++) {
+        importantIndices.add(curvatures[i].index);
+      }
+      
+      // Add evenly-spaced points to ensure coverage (40% of target)
+      const evenSpaceCount = Math.floor(targetPoints * 0.4);
+      const spacing = Math.max(1, Math.floor(uniqueX.length / evenSpaceCount));
+      for (let i = 0; i < uniqueX.length; i += spacing) {
+        importantIndices.add(i);
+      }
+      
+      // Convert to sorted array and build reduced list
+      const sortedIndices = Array.from(importantIndices).sort((a, b) => a - b);
+      sortedIndices.forEach(idx => {
+        if (idx > 0 && idx < uniqueX.length) {
+          reduced.push(uniqueX[idx]);
+        }
+      });
+      
+      // Make sure last point is included
+      if (reduced[reduced.length - 1] !== uniqueX[uniqueX.length - 1]) {
+        reduced.push(uniqueX[uniqueX.length - 1]);
+      }
     }
     
     // Extract x and y arrays from reduced set
@@ -182,9 +227,18 @@ const PotentialSimulator = () => {
     const A = Array(nReduced).fill(0).map(() => Array(nReduced).fill(0));
     const b = Array(nReduced).fill(0);
     
-    // Natural boundary conditions: M[0] = M[n-1] = 0
-    A[0][0] = 1;
-    A[nReduced - 1][nReduced - 1] = 1;
+    // Clamped boundary conditions: estimate slopes at endpoints
+    // First point: estimate slope using first two points
+    const slope0 = (y[1] - y[0]) / h[0];
+    A[0][0] = 2 * h[0];
+    A[0][1] = h[0];
+    b[0] = 6 * ((y[1] - y[0]) / h[0] - slope0);
+    
+    // Last point: estimate slope using last two points
+    const slopeN = (y[nReduced - 1] - y[nReduced - 2]) / h[nReduced - 2];
+    A[nReduced - 1][nReduced - 2] = h[nReduced - 2];
+    A[nReduced - 1][nReduced - 1] = 2 * h[nReduced - 2];
+    b[nReduced - 1] = 6 * (slopeN - (y[nReduced - 1] - y[nReduced - 2]) / h[nReduced - 2]);
     
     // Interior points
     for (let i = 1; i < nReduced - 1; i++) {
@@ -249,8 +303,8 @@ const PotentialSimulator = () => {
       const yPrev2 = evaluatePolynomial(poly, x - 2 * step);
       const yNext2 = evaluatePolynomial(poly, x + 2 * step);
       
-      // Check if it's a local minimum (not maximum)
-      if ((y >= yPrev ||y >= yPrev2) && (y >= yNext || y >= yNext2)) {
+      // Check if it's a local minimum (valley - y greater than neighbors in screen coords)
+      if ((y >= yPrev || y >= yPrev2) && (y >= yNext || y >= yNext2)) {
         minima.push({ x, y });
       }
     }
@@ -270,8 +324,8 @@ const PotentialSimulator = () => {
       const yPrev2 = evaluateCubicSpline(spline, x - 2 * step);
       const yNext2 = evaluateCubicSpline(spline, x + 2 * step);
       
-      // Check if it's a local minimum (not maximum)
-      if ((y >= yPrev ||y >= yPrev2) && (y >= yNext || y >= yNext2)){
+      // Check if it's a local minimum (valley - y greater than neighbors in screen coords)
+      if ((y >= yPrev || y >= yPrev2) && (y >= yNext || y >= yNext2)){
         minima.push({ x, y });
       }
     }
@@ -311,6 +365,54 @@ const PotentialSimulator = () => {
     for (let x = minX; x <= 1; x += step) {
       const diff = Math.abs(evaluateCubicSpline(spline, x) - evaluatePolynomial(quad, x));
       if (diff > tolerance) break;
+      rightX = x;
+    }
+    
+    return { left: leftX, right: rightX };
+  };
+  
+  // Polynomial versions of the functions above
+  const fitQuadraticAtMinimumPoly = (poly, minX, windowSize = 0.15) => {
+    const samples = [];
+    const xMin = Math.max(0, minX - windowSize);
+    const xMax = Math.min(1, minX + windowSize);
+    
+    // Sample points from the polynomial
+    for (let i = 0; i <= 30; i++) {
+      const x = xMin + (xMax - xMin) * i / 30;
+      const y = evaluatePolynomial(poly, x);
+      samples.push({ x, y });
+    }
+    
+    return fitPolynomial(samples, 2);
+  };
+  
+  const findValidRangeFromPolynomial = (poly, quad, minX, tolerance = 0.02) => {
+    let leftX = minX;
+    let rightX = minX;
+    const step = 0.005; // Smaller step for more precision
+    
+    // Find left boundary
+    for (let x = minX - step; x >= 0; x -= step) {
+      const polyVal = evaluatePolynomial(poly, x);
+      const quadVal = evaluatePolynomial(quad, x);
+      const diff = Math.abs(polyVal - quadVal);
+      const relativeDiff = Math.abs(diff / Math.max(Math.abs(polyVal), Math.abs(quadVal), 0.01));
+      
+      // Use relative tolerance for better scaling
+      if (diff > tolerance && relativeDiff > 0.1) break;
+      leftX = x;
+    }
+    
+    // Find right boundary
+    for (let x = minX + step; x <= 1; x += step) {
+      const polyVal = evaluatePolynomial(poly, x);
+      const quadVal = evaluatePolynomial(quad, x);
+      const diff = Math.abs(polyVal - quadVal);
+      const relativeDiff = Math.abs(diff / Math.max(Math.abs(polyVal), Math.abs(quadVal), 0.01));
+      
+      // Use relative tolerance for better scaling
+      if (diff > tolerance && relativeDiff > 0.1) break;
       rightX = x;
     }
     
@@ -379,8 +481,14 @@ const PotentialSimulator = () => {
       setGlobalPolynomial(null);
     }
     
+    // Use global polynomial if available, otherwise use spline
+    const curveToUse = globalPolyResult || splineResult;
+    const isUsingPolynomial = globalPolyResult !== null;
+    
     // Find local minima
-    const minima = findLocalMinimaFromSpline(splineResult, 0, 1);
+    const minima = isUsingPolynomial 
+      ? findLocalMinima(curveToUse, 0, 1)
+      : findLocalMinimaFromSpline(curveToUse, 0, 1);
     
     if (minima.length === 0) {
       setError('No local minimum found. Draw a curve with at least one valley.');
@@ -388,7 +496,7 @@ const PotentialSimulator = () => {
       return;
     }
     
-    // Find the deepest minimum
+    // Find the deepest minimum (highest y value = lowest on screen = deepest valley)
     let deepestMin = minima[0];
     for (const min of minima) {
       if (min.y > deepestMin.y) {
@@ -398,15 +506,19 @@ const PotentialSimulator = () => {
     setMinimum(deepestMin);
     
     // Fit quadratic around the minimum
-    const quad = fitQuadraticAtMinimum(splineResult, deepestMin.x);
+    const quad = isUsingPolynomial
+      ? fitQuadraticAtMinimumPoly(curveToUse, deepestMin.x)
+      : fitQuadraticAtMinimum(curveToUse, deepestMin.x);
     if (!quad) {
       setError('Could not fit quadratic approximation');
       return;
     }
     setQuadratic(quad);
     
-    // Find valid range where quadratic approximation is good (compare to spline, not polynomial)
-    const range = findValidRangeFromSpline(splineResult, quad, deepestMin.x);
+    // Find valid range where quadratic approximation is good
+    const range = isUsingPolynomial
+      ? findValidRangeFromPolynomial(curveToUse, quad, deepestMin.x)
+      : findValidRangeFromSpline(curveToUse, quad, deepestMin.x);
     
     // Check if valid range is too small
     const rangeSize = range.right - range.left;
