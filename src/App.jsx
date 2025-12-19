@@ -38,13 +38,13 @@ function Home() {
             extended object.
           </p>
         </a>
-	<Link to="/circuit" className="sim-card">
-          <div className="sim-icon">💡</div>
-          <h2 className="sim-title">Circuit Flow Visualization</h2>
-          <p className="sim-description">
-            Build an analogy to the flow of current in a circuit with water!
-          </p>
-        </Link>
+\\	<Link to="/circuit" className="sim-card">
+ \\         <div className="sim-icon">💡</div>
+ \\         <h2 className="sim-title">Circuit Flow Visualization</h2>
+ \\         <p className="sim-description">
+ \\           Build an analogy to the flow of current in a circuit with water!
+ \\         </p>
+ \\       </Link>		
       </div>
 
       <footer>
