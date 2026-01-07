@@ -82,10 +82,10 @@ const CircuitWaterGame = () => {
         { type: 'channel', pos: [2, 2], rotation: 0 },
         { type: 'junction', pos: [3, 2], rotation: 0 },
         { type: 'corner', pos: [3, 1], rotation: 270 },
-        { type: 'waterfall', pos: [4, 1], rotation: 0 },
+        { type: 'waterfall-large', pos: [4, 1], rotation: 0 },
         { type: 'channel', pos: [5, 1], rotation: 0 },
         { type: 'corner', pos: [3, 3], rotation: 180 },
-        { type: 'waterfall', pos: [4, 3], rotation: 0 },
+        { type: 'waterfall-large', pos: [4, 3], rotation: 0 },
         { type: 'channel', pos: [5, 3], rotation: 0 },
         { type: 'junction', pos: [6, 2], rotation: 180 },
         { type: 'corner', pos: [6, 1], rotation: 0 },
@@ -225,18 +225,18 @@ const CircuitWaterGame = () => {
       }
     } else if (type === 'junction') {
       // Junction connects three directions (T-shape)
-      // rotation 0: left, right, down
-      // rotation 90: up, down, right
-      // rotation 180: left, right, up
-      // rotation 270: up, down, left
+      // rotation 0: left, right, down (T pointing down)
+      // rotation 90: up, down, left (⊢ pointing left)
+      // rotation 180: left, right, up (T pointing up)
+      // rotation 270: up, down, right (⊣ pointing right)
       if (rotation === 0) {
         connections.push([row, col - 1], [row, col + 1], [row + 1, col]);
       } else if (rotation === 90) {
-        connections.push([row - 1, col], [row + 1, col], [row, col + 1]);
+        connections.push([row - 1, col], [row + 1, col], [row, col - 1]);
       } else if (rotation === 180) {
         connections.push([row, col - 1], [row, col + 1], [row - 1, col]);
       } else { // 270
-        connections.push([row - 1, col], [row + 1, col], [row, col - 1]);
+        connections.push([row - 1, col], [row + 1, col], [row, col + 1]);
       }
     } else if (type === 'pump' || type === 'waterfall' || type === 'waterfall-large') {
       // Pump and waterfalls show direction but connect bidirectionally
@@ -429,35 +429,94 @@ const CircuitWaterGame = () => {
     console.log(`Pump output direction: ${directionName(outputDir)}`);
     
     // Trace the circuit from pump output
+    // For junctions, we need to track ALL flows, so use arrays
     const directions = {};
-    const visited = new Set();
     
-    const trace = (row, col, entryDir) => {
+    // SPECIAL HANDLING FOR LEVEL 2 (Parallel Circuit with 2 T-junctions)
+    const isLevel2 = currentLevel === 1;
+    const junctionsEncountered = []; // Track junctions in order: [first, second]
+    
+    // =================================================================
+    // TRACE FUNCTION: Recursively follows the circuit path from the pump
+    // =================================================================
+    // This function walks through the circuit grid starting from the pump output,
+    // following connections from cell to cell, and stores the ENTRY DIRECTION
+    // for each cell in the 'directions' object.
+    //
+    // JUNCTION HANDLING: When we reach a junction from a new direction, we need to
+    // trace ALL exit paths, not just one. This ensures that downstream junctions
+    // discover all their inflows.
+    //
+    // Example: In a parallel circuit with two junctions:
+    //   1. First visit to Junction A: trace one branch to Junction B
+    //   2. Later, arrive at Junction A from different direction: trace the OTHER branch
+    //   3. Now Junction B correctly knows it has 2 inflows
+    //
+    // Parameters:
+    //   row, col: Current cell position in the grid
+    //   entryDir: Direction we TRAVELED to reach this cell [row_delta, col_delta]
+    //
+    // Direction encoding:
+    //   [-1, 0] = moved UP (row decreased)
+    //   [1, 0]  = moved DOWN (row increased)
+    //   [0, -1] = moved LEFT (col decreased)
+    //   [0, 1]  = moved RIGHT (col increased)
+    const trace = (row, col, entryDir, depth = 0) => {
       const key = `${row},${col}`;
-      if (visited.has(key)) return;
-      visited.add(key);
+      const indent = '  '.repeat(depth);
       
       const cell = grid[row][col];
       if (!cell) return;
       
+      // For junctions, we may visit multiple times from different directions
+      // Store all entry directions in an array
+      if (!directions[key]) {
+        directions[key] = [];
+      }
+      
+      // Check if we've already recorded this specific entry direction
+      // This prevents infinite loops when the circuit forms a complete loop
+      const alreadyHasThisDirection = directions[key].some(
+        dir => dir[0] === entryDir[0] && dir[1] === entryDir[1]
+      );
+      
+      if (alreadyHasThisDirection) {
+        console.log(`${indent}[${row},${col}] ${cell.type} - Already traced from this direction, skipping`);
+        return; // Already traced this path, stop to avoid infinite recursion
+      }
+      
       // Store the entry direction for this cell
-      directions[key] = entryDir;
+      directions[key].push(entryDir);
       
-      console.log(`  [${row},${col}] ${cell.type} (rotation ${cell.rotation}°) - Flow entering from ${directionName(entryDir)}`);
+      console.log(`${indent}[${row},${col}] ${cell.type} (rotation ${cell.rotation}°) - Flow entering from ${directionName(entryDir)}`);
       
-      // Get connections for this cell
+      // LEVEL 2 SPECIFIC: Track junction encounters
+      if (isLevel2 && cell.type === 'junction') {
+        if (!junctionsEncountered.some(j => j.key === key)) {
+          junctionsEncountered.push({ key, row, col, rotation: cell.rotation });
+          console.log(`${indent}🔵 JUNCTION #${junctionsEncountered.length} encountered at [${row},${col}]`);
+        }
+      }
+      
+      // Get all cells this current cell connects to
       const connections = getConnections(cell.type, cell.rotation, row, col);
       
-      // Find exit direction (the connection that's not where we came from)
+      // For each connected neighbor, trace the flow if it's NOT where we came from
       for (let [nRow, nCol] of connections) {
+        // Calculate the reverse direction (from neighbor back to current cell)
         const reverseDir = [row - nRow, col - nCol];
-        // Check if this is NOT where we came from
+        
+        // Check if this neighbor is NOT where we came from
+        // (reverseDir should NOT equal entryDir)
         if (!(reverseDir[0] === entryDir[0] && reverseDir[1] === entryDir[1])) {
-          // This is our exit direction
+          // This is an exit direction - calculate the direction TO the neighbor
           const exitDir = [nRow - row, nCol - col];
-          console.log(`    → Exiting towards ${directionName(exitDir)}`);
+          console.log(`${indent}  → Exiting towards ${directionName(exitDir)} to [${nRow},${nCol}]`);
+          
+          // Recursively trace from the neighbor cell
+          // The exitDir from this cell becomes the entryDir for the neighbor
           if (nRow >= 0 && nRow < grid.length && nCol >= 0 && nCol < grid[0].length) {
-            trace(nRow, nCol, exitDir);
+            trace(nRow, nCol, exitDir, depth + 1);
           }
         }
       }
@@ -466,15 +525,59 @@ const CircuitWaterGame = () => {
     // Start tracing from pump output
     const startRow = pumpRow + outputDir[0];
     const startCol = pumpCol + outputDir[1];
-    const inputDir0 = -outputDir[0];
-    const inputDir1 = -outputDir[1];
-    directions[`${pumpRow},${pumpCol}`] = outputDir
+    directions[`${pumpRow},${pumpCol}`] = [outputDir];
     
     if (startRow >= 0 && startRow < grid.length && startCol >= 0 && startCol < grid[0].length) {
-      trace(startRow, startCol, outputDir);
+      console.log('\n--- FIRST PASS: Trace from pump ---');
+      trace(startRow, startCol, outputDir, 0);
+    }
+    
+    // LEVEL 2 SPECIFIC: After first pass, if we found 2 junctions, trace the second path
+    if (isLevel2 && junctionsEncountered.length === 2) {
+      console.log('\n--- LEVEL 2 SPECIAL: Tracing second path from first junction ---');
+      const firstJunction = junctionsEncountered[0];
+      const firstJunctionKey = firstJunction.key;
+      const firstJunctionEntryDir = directions[firstJunctionKey][0]; // The direction we entered from
+      
+      console.log(`First junction at [${firstJunction.row},${firstJunction.col}] was entered from ${directionName(firstJunctionEntryDir)}`);
+      console.log(`First junction connects to:`, getConnections('junction', firstJunction.rotation, firstJunction.row, firstJunction.col));
+      
+      // Get all connections from first junction
+      const junctionConnections = getConnections('junction', firstJunction.rotation, firstJunction.row, firstJunction.col);
+      
+      // Find the connection we HAVEN'T traced yet
+      for (let [nRow, nCol] of junctionConnections) {
+        const reverseDir = [firstJunction.row - nRow, firstJunction.col - nCol];
+        
+        // Skip if this is where we came from
+        if (reverseDir[0] === firstJunctionEntryDir[0] && reverseDir[1] === firstJunctionEntryDir[1]) {
+          console.log(`  Skipping [${nRow},${nCol}] - that's where we came from`);
+          continue;
+        }
+        
+        const exitDir = [nRow - firstJunction.row, nCol - firstJunction.col];
+        const neighborKey = `${nRow},${nCol}`;
+        
+        // Check if we've already traced TO this neighbor FROM the first junction
+        const neighborCell = grid[nRow]?.[nCol];
+        if (neighborCell) {
+          const neighborDirections = directions[neighborKey] || [];
+          const alreadyTracedThisExit = neighborDirections.some(
+            dir => dir[0] === exitDir[0] && dir[1] === exitDir[1]
+          );
+          
+          if (!alreadyTracedThisExit) {
+            console.log(`  🔄 Tracing UNVISITED exit towards ${directionName(exitDir)} to [${nRow},${nCol}]`);
+            trace(nRow, nCol, exitDir, 0);
+          } else {
+            console.log(`  Already traced exit to [${nRow},${nCol}] via ${directionName(exitDir)}`);
+          }
+        }
+      }
     }
     
     console.log('=== FLOW DIRECTIONS CALCULATED ===');
+    console.log('All flow directions:', directions);
     setFlowDirections(directions);
   };
 
@@ -560,10 +663,130 @@ const CircuitWaterGame = () => {
       ctx.lineTo(startX, startY);
       ctx.stroke();
       
+    } else if (currentLevel === 1) {
+      // Draw a proper parallel circuit for level 2
+      ctx.strokeStyle = '#333';
+      ctx.lineWidth = 2;
+      
+      const startX = 50;
+      const centerY = 160;
+      const branchHeight = 50;
+      
+      // Left side - battery
+      ctx.beginPath();
+      ctx.moveTo(startX, centerY);
+      ctx.lineTo(startX + 40, centerY);
+      ctx.stroke();
+      
+      // Battery symbol
+      ctx.strokeStyle = '#d97706';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(startX + 40, centerY - 15);
+      ctx.lineTo(startX + 40, centerY + 15);
+      ctx.stroke();
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(startX + 50, centerY - 10);
+      ctx.lineTo(startX + 50, centerY + 10);
+      ctx.stroke();
+      
+      // Wire to junction point
+      ctx.strokeStyle = '#333';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(startX + 50, centerY);
+      ctx.lineTo(startX + 100, centerY);
+      ctx.stroke();
+      
+      // Junction point (left)
+      ctx.fillStyle = '#333';
+      ctx.beginPath();
+      ctx.arc(startX + 100, centerY, 4, 0, Math.PI * 2);
+      ctx.fill();
+      
+      // Top branch - first resistor
+      ctx.strokeStyle = '#333';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(startX + 100, centerY);
+      ctx.lineTo(startX + 100, centerY - branchHeight);
+      ctx.lineTo(startX + 140, centerY - branchHeight);
+      ctx.stroke();
+      
+      // First resistor (top)
+      ctx.strokeStyle = '#dc2626';
+      ctx.beginPath();
+      ctx.moveTo(startX + 140, centerY - branchHeight);
+      ctx.lineTo(startX + 145, centerY - branchHeight - 8);
+      ctx.lineTo(startX + 150, centerY - branchHeight + 8);
+      ctx.lineTo(startX + 155, centerY - branchHeight - 8);
+      ctx.lineTo(startX + 160, centerY - branchHeight + 8);
+      ctx.lineTo(startX + 165, centerY - branchHeight - 8);
+      ctx.lineTo(startX + 170, centerY - branchHeight);
+      ctx.stroke();
+      
+      // Continue top branch
+      ctx.strokeStyle = '#333';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(startX + 170, centerY - branchHeight);
+      ctx.lineTo(startX + 240, centerY - branchHeight);
+      ctx.lineTo(startX + 240, centerY);
+      ctx.stroke();
+      
+      // Bottom branch - second resistor
+      ctx.beginPath();
+      ctx.moveTo(startX + 100, centerY);
+      ctx.lineTo(startX + 100, centerY + branchHeight);
+      ctx.lineTo(startX + 140, centerY + branchHeight);
+      ctx.stroke();
+      
+      // Second resistor (bottom)
+      ctx.strokeStyle = '#dc2626';
+      ctx.beginPath();
+      ctx.moveTo(startX + 140, centerY + branchHeight);
+      ctx.lineTo(startX + 145, centerY + branchHeight - 8);
+      ctx.lineTo(startX + 150, centerY + branchHeight + 8);
+      ctx.lineTo(startX + 155, centerY + branchHeight - 8);
+      ctx.lineTo(startX + 160, centerY + branchHeight + 8);
+      ctx.lineTo(startX + 165, centerY + branchHeight - 8);
+      ctx.lineTo(startX + 170, centerY + branchHeight);
+      ctx.stroke();
+      
+      // Continue bottom branch
+      ctx.strokeStyle = '#333';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(startX + 170, centerY + branchHeight);
+      ctx.lineTo(startX + 240, centerY + branchHeight);
+      ctx.lineTo(startX + 240, centerY);
+      ctx.stroke();
+      
+      // Junction point (right)
+      ctx.fillStyle = '#333';
+      ctx.beginPath();
+      ctx.arc(startX + 240, centerY, 4, 0, Math.PI * 2);
+      ctx.fill();
+      
+      // Return path to battery
+      ctx.strokeStyle = '#333';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(startX + 240, centerY);
+      ctx.lineTo(startX + 300, centerY);
+      ctx.lineTo(startX + 300, centerY + 80);
+      ctx.lineTo(startX, centerY + 80);
+      ctx.lineTo(startX, centerY);
+      ctx.stroke();
+      
     } else {
       // For other levels, draw the circuit data
       ctx.strokeStyle = '#333';
       ctx.lineWidth = 2;
+      
+      // Define cell size for drawing circuit diagram
+      const cellSize = 40;
 
       // First pass: draw all wires as continuous lines
       ctx.beginPath();
@@ -706,22 +929,83 @@ const CircuitWaterGame = () => {
     return (
       <div style={style} className="flex items-center justify-center relative overflow-hidden">
         {tile.type === 'channel' && (
-          <div className="relative w-full h-full flex items-center">
-            <div className={`w-full bg-gradient-to-b ${color.gradient} border-t border-b relative overflow-hidden`} style={{ height: '7.5px', borderColor: color.border }}>
+          <div className="relative w-full h-full flex items-center justify-center">
+            <svg width={size} height={size} viewBox="0 0 50 50">
+              {/* Draw horizontal bar - CSS transform on parent div will rotate it */}
+              <rect x="0" y="21.25" width="50" height="7.5" fill={color.solid} stroke={color.border} strokeWidth="1" />
+              
               {flowAnimation && flowDir && (
                 <>
-                  {/* Flow animation in one direction based on flowDir */}
-                  {/* flowDir: [-1,0]=up, [1,0]=down, [0,-1]=left, [0,1]=right */}
-                  {(flowDir[0] === 0) && ( // horizontal flow
-                    <div 
-                      className={`absolute inset-0 bg-gradient-to-r from-transparent via-blue-200 to-transparent opacity-60 animate-flow`}
-                      style={{ animationDirection: flowDir[1] > 0 ? 'normal' : 'reverse' }}
-                    />
-                  )}
-                  <div className="absolute top-0 left-0 right-0 h-px bg-blue-100 opacity-40 animate-shimmer" />
+                  {/* ========================================== */}
+                  {/* CHANNEL BUBBLE ANIMATION */}
+                  {/* ========================================== */}
+                  {/* 
+                  flowDir is the "entry direction" - the direction we TRAVELED to reach this cell
+                  
+                  Since the entire channel tile rotates via CSS transform, we always draw
+                  bubbles moving horizontally in the LOCAL coordinate system (left-to-right
+                  or right-to-left along the channel bar).
+                  
+                  We need to determine if the flow is:
+                    - FORWARD through the channel (left-to-right in local coords)
+                    - BACKWARD through the channel (right-to-left in local coords)
+                  
+                  Direction format:
+                    flowDir[0] (row_delta): -1 = moved UP, 1 = moved DOWN
+                    flowDir[1] (col_delta): -1 = moved LEFT, 1 = moved RIGHT
+                  */}
+                  {(() => {
+                    let path;
+                    const rotation = tile.rotation || 0;
+                    
+                    // For HORIZONTAL channels (rotation 0 or 180):
+                    //   - The channel runs left-right in grid coordinates
+                    //   - flowDir[1] tells us which way we're moving horizontally
+                    //   - flowDir[1] = 1 (moved RIGHT) → flow left-to-right
+                    //   - flowDir[1] = -1 (moved LEFT) → flow right-to-left
+                    
+                    // For VERTICAL channels (rotation 90 or 270):
+                    //   - The channel runs up-down in grid coordinates
+                    //   - But due to CSS rotation, horizontal in LOCAL coordinates
+                    //   - flowDir[0] tells us which way we're moving vertically in grid
+                    //   - flowDir[0] = 1 (moved DOWN) → in rotated space, this is "forward" = left-to-right
+                    //   - flowDir[0] = -1 (moved UP) → in rotated space, this is "backward" = right-to-left
+                    
+                    if (rotation === 0 || rotation === 180) {
+                      // Horizontal channel in grid coordinates
+                      if (flowDir[1] === 1) {
+                        // Moved RIGHT in grid → flow left-to-right in channel
+                        path = "M 0 25 L 50 25";
+                      } else {
+                        // Moved LEFT in grid → flow right-to-left in channel
+                        path = "M 50 25 L 0 25";
+                      }
+                    } else {
+                      // Vertical channel in grid (rotation 90 or 270)
+                      // The CSS rotation makes it appear horizontal in the LOCAL coordinate system
+                      if (flowDir[0] === 1) {
+                        // Moved DOWN in grid → in rotated space = left-to-right
+                        path = "M 0 25 L 50 25";
+                      } else {
+                        // Moved UP in grid → in rotated space = right-to-left
+                        path = "M 50 25 L 0 25";
+                      }
+                    }
+                    
+                    return (
+                      <>
+                        <circle className="animate-flow-dot" r="2.5" fill="#dbeafe">
+                          <animateMotion dur="1.5s" repeatCount="indefinite" path={path} />
+                        </circle>
+                        <circle className="animate-flow-dot" r="2.5" fill="#bfdbfe">
+                          <animateMotion dur="1.5s" repeatCount="indefinite" begin="0.5s" path={path} />
+                        </circle>
+                      </>
+                    );
+                  })()}
                 </>
               )}
-            </div>
+            </svg>
           </div>
         )}
         {tile.type === 'corner' && (
@@ -735,56 +1019,76 @@ const CircuitWaterGame = () => {
                 <rect x="21.25" y="21.25" width="7.5" height="28.75" fill={color.solid} stroke={color.border} strokeWidth="1" />
                 {flowAnimation && flowDir && (
                   <>
-                    {/* Single dot flowing through corner based on actual flow direction */}
+                    {/* ========================================== */}
+                    {/* CORNER BUBBLE ANIMATION */}
+                    {/* ========================================== */}
+                    {/* flowDir is the "entry direction" - the direction we TRAVELED to reach this cell */}
+                    {/* 
+                    Example: If we're at cell [2,3] and flowDir = [0,1]:
+                      - flowDir = [row_delta, col_delta] = [0, 1]
+                      - row_delta = 0 means row stayed the same
+                      - col_delta = 1 means column increased by 1
+                      - So we moved RIGHT (from [2,2] to [2,3])
+                      - Therefore water is ENTERING from the LEFT edge of this cell
+                      - And will EXIT through the other connected edge
+                    
+                    Direction format:
+                      flowDir[0] (row_delta): -1 = moved UP, 1 = moved DOWN
+                      flowDir[1] (col_delta): -1 = moved LEFT, 1 = moved RIGHT
+                    */}
                     {(() => {
-                      // flowDir is direction traveling TO this cell
-                      // Reverse it to get where water came FROM
-                      const entryRow = -flowDir[0];
-                      const entryCol = -flowDir[1];
-                      
                       let path;
+                      const rotation = tile.rotation || 0;
                       
-                      if (tile.rotation === 0) {
-                        // Top-right: should flow left to bottom
-                        // From console: flowDir [-1,0] = traveling UP = came from BELOW
-                        // But we want left to bottom, so entryCol should be checked
-                        if (entryCol === 1) {
-                          // Coming from right → exit down
+                      // Corner connections by rotation (in SVG coordinates):
+                      // rotation 0:   connects RIGHT (x=50) and DOWN (y=50)
+                      // rotation 90:  connects DOWN (y=50) and LEFT (x=0)  
+                      // rotation 180: connects LEFT (x=0) and UP (y=0)
+                      // rotation 270: connects UP (y=0) and RIGHT (x=50)
+                      
+                      if (rotation === 0) {
+                        // Connects RIGHT and DOWN
+                        if (flowDir[1] === 1) {
+                          // flowDir[1] = 1 means moved RIGHT
+                          // Water entered from LEFT edge, exits DOWN
                           path = "M 45 25 L 25 25 L 25 45";
                         } else {
-                          // Coming from below → exit right
+                          // flowDir[0] = 1 means moved DOWN
+                          // Water entered from TOP edge, exits RIGHT
                           path = "M 25 45 L 25 25 L 45 25";
                         }
-                      } else if (tile.rotation === 90) {
-                        // Top-left: WORKS! flows bottom to right
-                        // entryRow = 1 (from below) → exits right
-                        if (entryCol === -1) {
-                          // Coming from below → exit right
+                      } else if (rotation === 90) {
+                        // Connects DOWN and LEFT
+                        if (flowDir[0] === 1) {
+                          // flowDir[0] = 1 means moved DOWN
+                          // Water entered from TOP edge, exits LEFT
+                          path = "M 45 25 L 25 25 L 25 45";
+                        } else {
+                          // flowDir[1] = -1 means moved LEFT
+                          // Water entered from RIGHT edge, exits DOWN
                           path = "M 25 45 L 25 25 L 45 25";
-                        } else {
-                          // Coming from right → exit down
-                          path = "M 45 25 L 25 25 L 25 45";
                         }
-                      } else if (tile.rotation === 180) {
-                        // Bottom-left: should flow right to top  
-                        // Need to check which direction it came from
-                        if (entryCol === -1) {
-                          // Coming from right → exit up
+                      } else if (rotation === 180) {
+                        // Connects LEFT and UP
+                        if (flowDir[1] === -1) {
+                          // flowDir[1] = -1 means moved LEFT
+                          // Water entered from RIGHT edge, exits UP
                           path = "M 45 25 L 25 25 L 25 45";
                         } else {
-                          // Coming from below → exit left  
+                          // flowDir[0] = -1 means moved UP
+                          // Water entered from BOTTOM edge, exits LEFT
                           path = "M 25 45 L 25 25 L 45 25";
                         }
                       } else { // 270
-                        // Bottom-right: should flow top to left
-                        // entryRow = -1 means came from ABOVE
-                        // entryCol = 1 means came from RIGHT
-                        if (entryCol === 1) {
-                          // Coming from above → exit left
-                          path = "M 25 45 L 25 25 L 45 25";
-                        } else {
-                          // Coming from right → exit up
+                        // Connects UP and RIGHT
+                        if (flowDir[0] === -1) {
+                          // flowDir[0] = -1 means moved UP
+                          // Water entered from BOTTOM edge, exits RIGHT
                           path = "M 45 25 L 25 25 L 25 45";
+                        } else {
+                          // flowDir[1] = 1 means moved RIGHT
+                          // Water entered from LEFT edge, exits UP
+                          path = "M 25 45 L 25 25 L 45 25";
                         }
                       }
                       
@@ -941,17 +1245,153 @@ const CircuitWaterGame = () => {
                   stroke={color.border}
                   strokeWidth="1"
                 />
-                {flowAnimation && (
+                {flowAnimation && flowDir && (
                   <>
-                    <circle r="2" fill="#dbeafe" className="animate-flow-dot">
-                      <animateMotion dur="1s" repeatCount="indefinite" path="M 0 25 L 50 25" />
-                    </circle>
-                    <circle r="2" fill="#bfdbfe" className="animate-flow-dot">
-                      <animateMotion dur="1s" repeatCount="indefinite" path="M 25 25 L 25 50" />
-                    </circle>
-                    <circle r="2" fill="#dbeafe" className="animate-flow-dot">
-                      <animateMotion dur="1s" repeatCount="indefinite" begin="0.5s" path="M 50 25 L 0 25" />
-                    </circle>
+                    {/* JUNCTION FLOW ANIMATION SYSTEM */}
+                    {/* flowDir can be a single direction OR an array of directions for junctions */}
+                    {/* Each direction in the array represents water flowing INTO this junction from that direction */}
+                    {/* Direction format: [row_delta, col_delta] where [-1,0]=up, [1,0]=down, [0,-1]=left, [0,1]=right */}
+                    {(() => {
+                      // STEP 1: Normalize flowDir to always be an array for consistent handling
+                      // If it's already an array (junction with multiple inflows), use it as-is
+                      // If it's a single direction, wrap it in an array
+                      const flowDirs = Array.isArray(flowDir) ? flowDir : [flowDir];
+                      
+                      // STEP 2: Determine which edges have INFLOW (water entering the junction)
+                      // 
+                      // IMPORTANT: flowDirs is an array of "entry directions" stored by the trace function.
+                      // Each entry direction represents the DIRECTION WE TRAVELED to reach this cell.
+                      // 
+                      // Example: If we're at cell [3,2] and flowDirs contains [0,1]:
+                      //   - [0,1] means row_delta=0, col_delta=1
+                      //   - This means we moved RIGHT (increased column by 1) to get here
+                      //   - So we came FROM the cell to our LEFT [3,1]
+                      //   - Therefore, water is ENTERING from the LEFT edge
+                      // 
+                      // Direction format: [row_delta, col_delta]
+                      //   [-1, 0] = moved UP (decreased row)
+                      //   [1, 0]  = moved DOWN (increased row)
+                      //   [0, -1] = moved LEFT (decreased col)
+                      //   [0, 1]  = moved RIGHT (increased col)
+                      //
+                      // ORIGINAL LOGIC (keeping this for manual debugging):
+                      // hasInflowUp: true if ANY direction in flowDirs has row_delta === -1 (moved UP)
+                      const hasInflowUp = flowDirs.some(dir => dir[0] === -1);
+                      // hasInflowDown: true if ANY direction has row_delta === 1 (moved DOWN)
+                      const hasInflowDown = flowDirs.some(dir => dir[0] === 1);
+                      // hasInflowLeft: true if ANY direction has col_delta === -1 (moved LEFT)
+                      const hasInflowLeft = flowDirs.some(dir => dir[1] === -1);
+                      // hasInflowRight: true if ANY direction has col_delta === 1 (moved RIGHT)
+                      const hasInflowRight = flowDirs.some(dir => dir[1] === 1);
+                      
+                      return (
+                        <>
+                          {/* JUNCTION ROTATION REFERENCE:
+                              rotation 0°:   T shape → connects LEFT, RIGHT, DOWN (horizontal bar at top, stem pointing down)
+                              rotation 90°:  ⊢ shape → connects UP, DOWN, LEFT (vertical bar at right, stem pointing left)
+                              rotation 180°: ⊥ shape → connects LEFT, RIGHT, UP (horizontal bar at bottom, stem pointing up)
+                              rotation 270°: ⊣ shape → connects UP, DOWN, RIGHT (vertical bar at left, stem pointing right)
+                          */}
+                          
+                          {/* ============================================ */}
+                          {/* INFLOW BUBBLES: Animate from edge TO center */}
+                          {/* ============================================ */}
+                          {/* These bubbles show water ENTERING the junction from connected edges */}
+                          {/* Path format: "M <edge_x> <edge_y> L 25 25" (edge coords to center) */}
+                          
+                          {/* LEFT INFLOW: Bubble travels from left edge (x=0) to center (25,25) */}
+                          {/* Shows when hasInflowLeft === true */}
+                          {((hasInflowLeft && (tile.rotation === 0)) || (hasInflowUp && tile.rotation === 90) || (hasInflowRight && tile.rotation === 180)
+                          || (hasInflowDown && tile.rotation ===270))&& (
+                            <circle r="2" fill="#dbeafe" className="animate-flow-dot">
+                              <animateMotion dur="1s" repeatCount="indefinite" path="M 0 25 L 25 25" />
+                            </circle>
+                          )}
+                          
+                          {/* RIGHT INFLOW: Bubble travels from right edge (x=50) to center (25,25) */}
+                          {/* Shows when hasInflowRight === true */}
+                          {((hasInflowRight && (tile.rotation === 0)) || (hasInflowDown && tile.rotation === 90) || (hasInflowLeft && tile.rotation === 180)
+                          || (hasInflowUp && tile.rotation ===270)) && (
+                            <circle r="2" fill="#dbeafe" className="animate-flow-dot">
+                              <animateMotion dur="1s" repeatCount="indefinite" path="M 50 25 L 25 25" />
+                            </circle>
+                          )}
+                          
+                          {/* DOWN INFLOW: Bubble travels from bottom edge (y=50) to center (25,25) */}
+                          {/* Shows when hasInflowDown === true */}
+                          {((hasInflowDown && (tile.rotation === 0)) || (hasInflowLeft && tile.rotation === 90) || (hasInflowUp && tile.rotation === 180)
+                          || (hasInflowRight && tile.rotation ===270)) && (
+                            <circle r="2" fill="#dbeafe" className="animate-flow-dot">
+                              <animateMotion dur="1s" repeatCount="indefinite" path="M 25 50 L 25 25" />
+                            </circle>
+                          )}
+                          
+                          {/* UP INFLOW: Bubble travels from top edge (y=0) to center (25,25) */}
+                          {/* Shows when hasInflowUp === true */}
+                          {/*hasInflowUp && (
+                            <circle r="2" fill="#dbeafe" className="animate-flow-dot">
+                              <animateMotion dur="1s" repeatCount="indefinite" path="M 25 0 L 25 25" />
+                            </circle>
+                          )*/}
+                          
+                          {/* ============================================ */}
+                          {/* OUTFLOW BUBBLES: Animate from center TO edge */}
+                          {/* ============================================ */}
+                          {/* These bubbles show water LEAVING the junction to connected edges */}
+                          {/* Path format: "M 25 25 L <edge_x> <edge_y>" (center to edge coords) */}
+                          {/* 
+                          LOGIC: Show outflow bubble IF:
+                            1. The edge is CONNECTED (based on rotation), AND
+                            2. There is NO INFLOW from that edge
+                          
+                          This handles both merge and split:
+                            - MERGE (2 inflows → 1 outflow): 2 hasInflow=true, 1 hasInflow=false
+                            - SPLIT (1 inflow → 2 outflows): 1 hasInflow=true, 2 hasInflow=false
+                          
+                          Junction connections by rotation:
+                            - rotation 0°:   LEFT, RIGHT, DOWN connected
+                            - rotation 90°:  UP, DOWN, LEFT connected
+                            - rotation 180°: LEFT, RIGHT, UP connected
+                            - rotation 270°: UP, DOWN, RIGHT connected
+                          */}
+                          
+                          {/* LEFT OUTFLOW: Bubble travels from center (25,25) to left edge (x=0) */}
+                          {/* Shows if: LEFT is connected (rot 0, 90, 180) AND no left inflow */}
+                          {((!hasInflowLeft && (tile.rotation === 0)) || (!hasInflowUp && tile.rotation === 90) || (!hasInflowRight && tile.rotation === 180)
+                          || (!hasInflowDown && tile.rotation ===270)) && (
+                            <circle r="2" fill="#93c5fd" className="animate-flow-dot">
+                              <animateMotion dur="1s" repeatCount="indefinite" path="M 25 25 L 0 25" />
+                            </circle>
+                          )}
+                          
+                          {/* RIGHT OUTFLOW: Bubble travels from center (25,25) to right edge (x=50) */}
+                          {/* Shows if: RIGHT is connected (rot 0, 180, 270) AND no right inflow */}
+                          {((!hasInflowLeft && (tile.rotation === 0)) || (!hasInflowUp && tile.rotation === 90) || (!hasInflowRight && tile.rotation === 180)
+                          || (!hasInflowDown && tile.rotation ===270))&& (
+                            <circle r="2" fill="#93c5fd" className="animate-flow-dot">
+                              <animateMotion dur="1s" repeatCount="indefinite" path="M 25 25 L 50 25" />
+                            </circle>
+                          )}
+                          
+                          {/* DOWN OUTFLOW: Bubble travels from center (25,25) to bottom edge (y=50) */}
+                          {/* Shows if: DOWN is connected (rot 0, 90, 270) AND no down inflow */}
+                          {((!hasInflowLeft && (tile.rotation === 0)) || (!hasInflowUp && tile.rotation === 90) || (!hasInflowRight && tile.rotation === 180)
+                          || (!hasInflowDown && tile.rotation ===270)) && (
+                            <circle r="2" fill="#93c5fd" className="animate-flow-dot">
+                              <animateMotion dur="1s" repeatCount="indefinite" path="M 25 25 L 25 50" />
+                            </circle>
+                          )}
+                          
+                          {/* UP OUTFLOW: Bubble travels from center (25,25) to top edge (y=0) */}
+                          {/* Shows if: UP is connected (rot 90, 180, 270) AND no up inflow */}
+                          {/*!hasInflowUp && (tile.rotation === 90 || tile.rotation === 180 || tile.rotation === 270) && (
+                            <circle r="2" fill="#93c5fd" className="animate-flow-dot">
+                              <animateMotion dur="1s" repeatCount="indefinite" path="M 25 25 L 25 0" />
+                            </circle>
+                          )*/}
+                        </>
+                      );
+                    })()}
                   </>
                 )}
               </svg>

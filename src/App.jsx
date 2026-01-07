@@ -3,6 +3,11 @@ import { Routes, Route, Link } from "react-router-dom";
 import EnergyGame from "./energy-game.jsx";
 import PotentialSimulator from "./harmonic.jsx";
 import CircuitWaterGame from "./circuit.jsx";
+import QuantumVectorGrid from "./quantumCheck.jsx";
+import QuantumLearnGrid from "./qLearn.jsx";
+import MomentumGame from "./momentum.jsx";
+
+
 
 function Home() {
   return (
@@ -38,6 +43,13 @@ function Home() {
             extended object.
           </p>
         </a>
+	<Link to="/momentum" className="sim-card">
+          <div className="sim-icon">💥</div>
+          <h2 className="sim-title">Momentum Conservation Collision Game</h2>
+          <p className="sim-description">
+            Experiment with 1-D collisions to conserve momentum!
+          </p>
+        </Link>
 	
       </div>
 
@@ -55,6 +67,10 @@ export default function App() {
       <Route path="/energy-game" element={<EnergyGame />} />
       <Route path="/harmonic" element={<PotentialSimulator />} />
       <Route path="/circuit" element={<CircuitWaterGame />} />
+	<Route path="/qcheck" element={<QuantumVectorGrid />} />
+	<Route path="/qlearn" element={<QuantumLearnGrid />} />
+	<Route path="/momentum" element={<MomentumGame />} />
+
     </Routes>
   );
 }
