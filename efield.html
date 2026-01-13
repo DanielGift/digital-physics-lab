@@ -298,15 +298,22 @@
             if (!currentFieldVector) return;
             
             const referenceMagnitude = calculateReferenceFieldMagnitude();
-            const currentMagnitude = Math.sqrt(currentFieldVector.x ** 2 + currentFieldVector.y ** 2);
-            
-            // If current vector is more than 1.75x larger than reference, scale down by 4
-            if (currentMagnitude > 1.75 * referenceMagnitude) {
-                vectorScaleFactor = 0.25;
-            } else {
-                vectorScaleFactor = 1;
-            }
-        }
+           // Check if ANY piece (not just current) exceeds threshold
+    	let needsScaling = false;
+	for (let i = 0; i < pieces.length; i++) {
+        		const field = calculateFieldFromPiece(pieces[i]);
+        		const magnitude = Math.sqrt(field.x ** 2 + field.y ** 2);
+        
+       		 if (magnitude > 1.75 * referenceMagnitude) {
+          		  needsScaling = true;
+           		 break;
+    		    }
+   		 }
+    
+  	  if (needsScaling) {
+        vectorScaleFactor = .25;
+   	 }       
+     }
         
         // ===== HELPER FUNCTION TO CHECK IF MOUSE IS OVER POINT P =====
         function isMouseOverP(mouseX, mouseY) {
@@ -360,7 +367,7 @@
             };
             
             function animate() {
-                animationProgress += 0.03;
+                animationProgress += 0.06;
                 
                 if (animationProgress >= 1) {
                     animationProgress = 1;
