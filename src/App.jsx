@@ -6,6 +6,7 @@ import CircuitWaterGame from "./circuit.jsx";
 import QuantumVectorGrid from "./quantumCheck.jsx";
 import QuantumLearnGrid from "./qLearn.jsx";
 import MomentumGame from "./momentum.jsx";
+import RelativisticWireSimulation from "./EtoB.jsx";
 
 
 
@@ -70,6 +71,7 @@ export default function App() {
 	<Route path="/qcheck" element={<QuantumVectorGrid />} />
 	<Route path="/qlearn" element={<QuantumLearnGrid />} />
 	<Route path="/momentum" element={<MomentumGame />} />
+<Route path="/EtoB" element={<RelativisticWireSimulation />} />
 
     </Routes>
   );
