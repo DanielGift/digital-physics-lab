@@ -7,6 +7,7 @@ import QuantumVectorGrid from "./quantumCheck.jsx";
 import QuantumLearnGrid from "./qLearn.jsx";
 import MomentumGame from "./momentum.jsx";
 import RelativisticWireSimulation from "./EtoB.jsx";
+import PhysicsLab from "./physics-lab/PhysicsLab.jsx";
 
 
 
@@ -51,7 +52,15 @@ function Home() {
             Experiment with 1-D collisions to conserve momentum!
           </p>
         </Link>
-	
+
+        <Link to="/physics-lab" className="sim-card">
+          <div className="sim-icon">🔬</div>
+          <h2 className="sim-title">Virtual Physics Lab</h2>
+          <p className="sim-description">
+            A full virtual lab with track, cart, motion detector, and more. Record data and take notes!
+          </p>
+        </Link>
+
       </div>
 
       <footer>
@@ -72,7 +81,7 @@ export default function App() {
 	<Route path="/qlearn" element={<QuantumLearnGrid />} />
 	<Route path="/momentum" element={<MomentumGame />} />
 <Route path="/EtoB" element={<RelativisticWireSimulation />} />
-
+      <Route path="/physics-lab" element={<div style={{ height: "100vh", width: "100vw", overflow: "hidden" }}><PhysicsLab /></div>} />
     </Routes>
   );
 }
