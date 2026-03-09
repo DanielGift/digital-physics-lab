@@ -28,6 +28,22 @@ function Home() {
           </p>
         </Link>
 
+	<Link to="/momentum" className="sim-card">
+          <div className="sim-icon">💥</div>
+          <h2 className="sim-title">Momentum Conservation Collision Game</h2>
+          <p className="sim-description">
+            Experiment with 1-D collisions to conserve momentum!
+          </p>
+        </Link>
+
+	<Link to="/circuit" className="sim-card">
+          <div className="sim-icon">🌊</div>
+          <h2 className="sim-title">Circuit Water Analogy Game</h2>
+          <p className="sim-description">
+            Build water circuits to understand voltage, current, and resistance through a flowing water analogy!
+          </p>
+        </Link>
+
         <Link to="/harmonic" className="sim-card">
           <div className="sim-icon">📈</div>
           <h2 className="sim-title">Arbitrary Potential Simulator</h2>
@@ -45,22 +61,18 @@ function Home() {
             extended object.
           </p>
         </a>
-	<Link to="/momentum" className="sim-card">
-          <div className="sim-icon">💥</div>
-          <h2 className="sim-title">Momentum Conservation Collision Game</h2>
-          <p className="sim-description">
-            Experiment with 1-D collisions to conserve momentum!
-          </p>
-        </Link>
+	
 
-        <Link to="/physics-lab" className="sim-card">
+      {/*  <Link to="/physics-lab" className="sim-card">
           <div className="sim-icon">🔬</div>
           <h2 className="sim-title">Virtual Physics Lab</h2>
           <p className="sim-description">
             A full virtual lab with track, cart, motion detector, and more. Record data and take notes!
           </p>
         </Link>
+*/}
 
+       
       </div>
 
       <footer>
