@@ -244,6 +244,10 @@ export function drawCart(ctx, c) {
   ctx.textAlign = "center";
   ctx.fillText("CART", cx + cw / 2, cy + ch / 2 + 2);
 
+  // Mass label
+  ctx.fillStyle = "rgba(255,255,255,0.4)";
+  ctx.font = "6px sans-serif";
+  ctx.fillText("0.5 kg", cx + cw / 2, cy + ch - 3);
   ctx.textAlign = "start";
 
   // Bumper springs
@@ -584,7 +588,7 @@ export function drawPulley(ctx, p) {
     ctx.stroke();
   }
 
-  // Clamped indicator (track)
+  // Clamped indicator
   if (p.props.clampedToTrack) {
     ctx.fillStyle = "rgba(126,184,255,0.2)";
     ctx.beginPath();
@@ -595,25 +599,6 @@ export function drawPulley(ctx, p) {
     ctx.beginPath();
     ctx.roundRect(cx - 12, py - 6, 24, 8, 2);
     ctx.stroke();
-  }
-
-  // Hanging indicator (rod stand)
-  if (p.props.clampedToRodStand) {
-    // Draw a small hook/connection above the pulley
-    ctx.strokeStyle = "#666";
-    ctx.lineWidth = 2;
-    ctx.lineCap = "round";
-    ctx.beginPath();
-    ctx.moveTo(cx, py - 2);
-    ctx.lineTo(cx, py - 10);
-    ctx.stroke();
-    ctx.lineCap = "butt";
-
-    // Subtle glow to show it's attached
-    ctx.fillStyle = "rgba(126,184,255,0.15)";
-    ctx.beginPath();
-    ctx.arc(cx, py - 10, 5, 0, Math.PI * 2);
-    ctx.fill();
   }
 }
 
@@ -793,28 +778,14 @@ export function drawMeterStick(ctx, ms) {
     }
   }
 
-  // Draw rotation handles at ends (more visible)
-  ctx.fillStyle = "rgba(126,184,255,0.5)";
-  ctx.strokeStyle = "#7eb8ff";
-  ctx.lineWidth = 1.5;
+  // Draw rotation handles at ends (small circles)
+  ctx.fillStyle = "rgba(126,184,255,0.3)";
   ctx.beginPath();
-  ctx.arc(-msw / 2, 0, 8, 0, Math.PI * 2);
+  ctx.arc(-msw / 2, 0, 6, 0, Math.PI * 2);
   ctx.fill();
-  ctx.stroke();
   ctx.beginPath();
-  ctx.arc(msw / 2, 0, 8, 0, Math.PI * 2);
+  ctx.arc(msw / 2, 0, 6, 0, Math.PI * 2);
   ctx.fill();
-  ctx.stroke();
-
-  // Rotation arrows inside handles
-  ctx.strokeStyle = "#fff";
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.arc(-msw / 2, 0, 4, -Math.PI * 0.7, Math.PI * 0.3);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.arc(msw / 2, 0, 4, Math.PI * 0.3, Math.PI * 1.3);
-  ctx.stroke();
 
   ctx.restore();
 }
@@ -906,28 +877,14 @@ export function drawProtractor(ctx, p) {
     }
   }
 
-  // Rotation handles at ends (more visible)
-  ctx.fillStyle = "rgba(126,184,255,0.5)";
-  ctx.strokeStyle = "#7eb8ff";
-  ctx.lineWidth = 1.5;
+  // Rotation handles at ends
+  ctx.fillStyle = "rgba(126,184,255,0.3)";
   ctx.beginPath();
-  ctx.arc(-radius, 0, 8, 0, Math.PI * 2);
+  ctx.arc(-radius, 0, 6, 0, Math.PI * 2);
   ctx.fill();
-  ctx.stroke();
   ctx.beginPath();
-  ctx.arc(radius, 0, 8, 0, Math.PI * 2);
+  ctx.arc(radius, 0, 6, 0, Math.PI * 2);
   ctx.fill();
-  ctx.stroke();
-
-  // Rotation arrows inside handles
-  ctx.strokeStyle = "#fff";
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.arc(-radius, 0, 4, -Math.PI * 0.7, Math.PI * 0.3);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.arc(radius, 0, 4, Math.PI * 0.3, Math.PI * 1.3);
-  ctx.stroke();
 
   ctx.restore();
 }
@@ -1023,7 +980,6 @@ export function drawScale(ctx, sc, all) {
 export function drawRodStand(ctx, rs) {
   const rx = rs.x, ry = rs.y;
   const rw = rs.props.width || 60, rh = rs.props.height || 120;
-  const armLength = rs.props.armLength || 50;
 
   // Base plate
   const baseW = rw, baseH = 8;
@@ -1048,9 +1004,9 @@ export function drawRodStand(ctx, rs) {
   ctx.fillStyle = "rgba(255,255,255,0.2)";
   ctx.fillRect(rodX - rodW / 2 + 1, ry, 2, rh - baseH);
 
-  // Clamp/holder for horizontal arm
-  const clampY = ry + 15;
-  const clampW = 14, clampH = 14;
+  // Clamp/holder at top
+  const clampY = ry + 10;
+  const clampW = 20, clampH = 12;
   ctx.fillStyle = "#5a5a62";
   ctx.beginPath();
   ctx.roundRect(rodX - clampW / 2, clampY, clampW, clampH, 2);
@@ -1059,62 +1015,24 @@ export function drawRodStand(ctx, rs) {
   ctx.lineWidth = 0.5;
   ctx.stroke();
 
-  // Clamp screw (tightens around vertical rod)
+  // Clamp screw
   ctx.fillStyle = "#777";
   ctx.beginPath();
-  ctx.arc(rodX + clampW / 2 + 2, clampY + clampH / 2, 3, 0, Math.PI * 2);
+  ctx.arc(rodX + clampW / 2 - 3, clampY + clampH / 2, 3, 0, Math.PI * 2);
   ctx.fill();
 
-  // Horizontal arm extending to the right
-  const armY = clampY + clampH / 2;
-  const armH = 5;
-  const armStartX = rodX + clampW / 2;
-  const armEndX = armStartX + armLength;
-
-  // Arm shadow
-  ctx.fillStyle = "rgba(0,0,0,0.2)";
-  ctx.fillRect(armStartX + 1, armY - armH / 2 + 1, armLength, armH);
-
-  // Arm body
-  ctx.fillStyle = "#888";
-  ctx.fillRect(armStartX, armY - armH / 2, armLength, armH);
-  ctx.strokeStyle = "#666";
-  ctx.lineWidth = 0.5;
-  ctx.strokeRect(armStartX, armY - armH / 2, armLength, armH);
-
-  // Arm shine
-  ctx.fillStyle = "rgba(255,255,255,0.2)";
-  ctx.fillRect(armStartX, armY - armH / 2, armLength, 1.5);
-
-  // Hook at end of arm for hanging pulley
-  const hookX = armEndX;
-  const hookY = armY + armH / 2;
-
-  // Hook stem
+  // Hook for pulley
   ctx.strokeStyle = "#666";
   ctx.lineWidth = 2;
   ctx.lineCap = "round";
   ctx.beginPath();
-  ctx.moveTo(hookX, hookY);
-  ctx.lineTo(hookX, hookY + 10);
+  ctx.moveTo(rodX, clampY + clampH);
+  ctx.lineTo(rodX, clampY + clampH + 8);
   ctx.stroke();
-
-  // Hook curve
   ctx.beginPath();
-  ctx.arc(hookX, hookY + 14, 4, -Math.PI / 2, Math.PI, false);
+  ctx.arc(rodX, clampY + clampH + 12, 4, 0, Math.PI, false);
   ctx.stroke();
   ctx.lineCap = "butt";
-
-  // Attachment point indicator (subtle blue glow)
-  ctx.fillStyle = "rgba(126,184,255,0.3)";
-  ctx.beginPath();
-  ctx.arc(hookX, hookY + 18, 6, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.strokeStyle = "#7eb8ff";
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.arc(hookX, hookY + 18, 6, 0, Math.PI * 2);
-  ctx.stroke();
 }
 
 // Draw background (walls, floor, table)

@@ -8,6 +8,7 @@ import QuantumLearnGrid from "./qLearn.jsx";
 import MomentumGame from "./momentum.jsx";
 import RelativisticWireSimulation from "./EtoB.jsx";
 import PhysicsLab from "./physics-lab/PhysicsLab.jsx";
+import DoubleSlit from "./double-slit.jsx";
 
 
 
@@ -41,6 +42,14 @@ function Home() {
           <h2 className="sim-title">Circuit Water Analogy Game</h2>
           <p className="sim-description">
             Build water circuits to understand voltage, current, and resistance through a flowing water analogy!
+          </p>
+        </Link>
+
+        <Link to="/double-slit" className="sim-card">
+          <div className="sim-icon">🔬</div>
+          <h2 className="sim-title">Double Slit Experiment</h2>
+          <p className="sim-description">
+            Explore wave-particle duality with water waves, light, and quantum effects!
           </p>
         </Link>
 
@@ -93,7 +102,8 @@ export default function App() {
 	<Route path="/qlearn" element={<QuantumLearnGrid />} />
 	<Route path="/momentum" element={<MomentumGame />} />
 <Route path="/EtoB" element={<RelativisticWireSimulation />} />
-      <Route path="/physics-lab" element={<div style={{ height: "100vh", width: "100vw", overflow: "hidden" }}><PhysicsLab /></div>} />
+      <Route path="/double-slit" element={<DoubleSlit />} />
+      <Route path="/physics-lab" element={<div style={{ width: "calc(100vw - 40px)", height: "calc(100vh - 40px)", margin: "20px auto", overflow: "hidden" }}><PhysicsLab /></div>} />
     </Routes>
   );
 }

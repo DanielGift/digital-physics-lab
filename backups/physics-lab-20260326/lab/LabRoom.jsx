@@ -26,10 +26,6 @@ export default function LabRoom({ labItems, strings, selectedId, dispatch, canva
   const [zoomSelectMode, setZoomSelectMode] = useState(false);
   const [zoomDrag, setZoomDrag] = useState(null); // { startX, startY, currentX, currentY } in logical coords
   const [stringDraw, setStringDraw] = useState(null); // { id, points: [{x,y}], drawing: bool }
-  const [heldItems, setHeldItems] = useState(new Set()); // Items being "held" in place
-  const [showActionPanel, setShowActionPanel] = useState(false); // Action sequence panel
-  const [actionSequence, setActionSequence] = useState([]); // [{type, targetId, delay}]
-  const [sequenceRunning, setSequenceRunning] = useState(false);
 
   const recStart = useRef(null);
   const recBuf = useRef([]);
@@ -89,85 +85,6 @@ export default function LabRoom({ labItems, strings, selectedId, dispatch, canva
     setRecData(null);
   }, []);
 
-  // Hold item with spacebar during drag
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.code === "Space" && drag) {
-        e.preventDefault();
-        const item = labItems.find(i => i.id === drag.iid);
-        if (item && (item.type === "cart" || item.type === "massHanger")) {
-          setHeldItems(prev => new Set([...prev, drag.iid]));
-          // Stop the item's velocity
-          dispatch({
-            type: "UPD",
-            id: drag.iid,
-            u: { props: { ...item.props, velocity: 0, velocityY: 0, isHeld: true } }
-          });
-        }
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [drag, labItems, dispatch]);
-
-  // Release a held item
-  const releaseHeldItem = useCallback((id) => {
-    setHeldItems(prev => {
-      const next = new Set(prev);
-      next.delete(id);
-      return next;
-    });
-    const item = labItems.find(i => i.id === id);
-    if (item) {
-      dispatch({
-        type: "UPD",
-        id,
-        u: { props: { ...item.props, isHeld: false } }
-      });
-    }
-  }, [labItems, dispatch]);
-
-  // Run action sequence
-  const runActionSequence = useCallback(() => {
-    if (actionSequence.length === 0) return;
-    setSequenceRunning(true);
-
-    let totalDelay = 0;
-    actionSequence.forEach((action, idx) => {
-      totalDelay += action.delay || 0;
-      setTimeout(() => {
-        switch (action.type) {
-          case "release":
-            releaseHeldItem(action.targetId);
-            break;
-          case "startDetector":
-            const det = labItems.find(i => i.type === "motionDetector" && !i.props.inTray);
-            if (det) startRec(det.id);
-            break;
-          case "stopDetector":
-            finishRec();
-            break;
-          case "pushCart":
-            const cart = labItems.find(i => i.id === action.targetId);
-            if (cart) {
-              const pushStrength = cart.props.pushStrength || 100;
-              const direction = action.direction || 1;
-              dispatch({
-                type: "UPD",
-                id: cart.id,
-                u: { props: { ...cart.props, velocity: direction * pushStrength } }
-              });
-            }
-            break;
-        }
-        if (idx === actionSequence.length - 1) {
-          setSequenceRunning(false);
-        }
-      }, totalDelay);
-    });
-  }, [actionSequence, labItems, dispatch, releaseHeldItem, startRec, finishRec]);
-
   // Physics + render loop
   useEffect(() => {
     let run = true;
@@ -216,14 +133,9 @@ export default function LabRoom({ labItems, strings, selectedId, dispatch, canva
       if (cv) {
         const ctx = cv.getContext("2d");
 
-        // Use actual canvas CSS size for proper scaling
-        const actualW = cv.clientWidth;
-        const actualH = cv.clientHeight;
-        if (actualW <= 0 || actualH <= 0) return; // Skip rendering if no size yet
-
-        // Set canvas internal resolution to match actual display size × devicePixelRatio
-        const canvasW = Math.floor(actualW * dpr);
-        const canvasH = Math.floor(actualH * dpr);
+        // Set canvas internal resolution to match display size × devicePixelRatio
+        const canvasW = Math.floor(displayW * dpr);
+        const canvasH = Math.floor(displayH * dpr);
 
         if (cv.width !== canvasW || cv.height !== canvasH) {
           cv.width = canvasW;
@@ -245,14 +157,15 @@ export default function LabRoom({ labItems, strings, selectedId, dispatch, canva
         const viewW = Math.max(1, viewMaxX - viewMinX);
         const viewH = Math.max(1, viewMaxY - viewMinY);
 
-        // Scale to fit the view region into the actual display
-        const scaleX = actualW / viewW;
-        const scaleY = actualH / viewH;
+        // Scale to fit the view region into the display
+        if (displayW <= 0 || displayH <= 0) return; // Skip rendering if no size yet
+        const scaleX = displayW / viewW;
+        const scaleY = displayH / viewH;
         const scale = Math.min(scaleX, scaleY);
 
         // Center the content if aspect ratios don't match
-        const offsetX = (actualW - viewW * scale) / 2;
-        const offsetY = (actualH - viewH * scale) / 2;
+        const offsetX = (displayW - viewW * scale) / 2;
+        const offsetY = (displayH - viewH * scale) / 2;
 
         // Apply DPR scaling, then translate to center, then scale and translate for zoom region
         ctx.scale(dpr, dpr);
@@ -268,32 +181,24 @@ export default function LabRoom({ labItems, strings, selectedId, dispatch, canva
 
         // Draw placed items
         const placed = labItems.filter(i => !i.props.inTray);
-        const stringItems = placed.filter(i => i.type === "string");
-        const pulleys = placed.filter(i => i.type === "pulley");
-
         for (const item of placed) {
           if (item.type === "track") {
             drawTrack(ctx, item, footDr);
           } else if (item.type === "string" && item.props.fixedLength) {
-            // Check if this string has both ends connected
-            const endA = strings.find(st => st.stringOwnerId === item.id && st.end === "A");
-            const endB = strings.find(st => st.stringOwnerId === item.id && st.end === "B");
-            if (endA && endB) {
-              // Skip - will be drawn in connected strings section below
-              continue;
-            }
-            // Not fully connected - draw as a coiled string at its position
-            drawItem(ctx, item, placed);
+            // Skip connected strings here - they're drawn below with the connected string rendering
+            continue;
           } else {
             drawItem(ctx, item, placed);
           }
         }
 
-        // Draw connected strings (both ends attached)
+        // Draw connected strings
+        const stringItems = placed.filter(i => i.type === "string");
+        const pulleys = placed.filter(i => i.type === "pulley");
+
         for (const si of stringItems) {
           const endA = strings.find(st => st.stringOwnerId === si.id && st.end === "A");
           const endB = strings.find(st => st.stringOwnerId === si.id && st.end === "B");
-          const endM = strings.find(st => st.stringOwnerId === si.id && st.end === "M");
           if (!endA || !endB) continue;
 
           const aiItem = labItems.find(i => i.id === endA.targetId);
@@ -309,23 +214,13 @@ export default function LabRoom({ labItems, strings, selectedId, dispatch, canva
           const a = aPt.getXY();
           const b = bPt.getXY();
 
-          // Check for explicit middle point (forced drape over pulley)
+          // Check for explicit pulley attachment
           let pulley = null;
-          if (endM) {
-            const mItem = labItems.find(i => i.id === endM.targetId);
-            if (mItem && mItem.type === "pulley" && !mItem.props.inTray) {
-              pulley = mItem;
-            }
-          }
+          if (endA.targetPoint === "over") pulley = aiItem;
+          else if (endB.targetPoint === "over") pulley = biItem;
 
-          // If no explicit middle, check for explicit pulley attachment at ends
+          // Auto-detect pulley in path if not explicitly attached
           if (!pulley) {
-            if (endA.targetPoint === "over") pulley = aiItem;
-            else if (endB.targetPoint === "over") pulley = biItem;
-          }
-
-          // Auto-detect pulley in path only if no explicit middle point set
-          if (!pulley && !endM) {
             for (const p of pulleys) {
               if (p.id === aiItem.id || p.id === biItem.id) continue;
               const pcx = p.x + (p.props.width || 28) / 2;
@@ -399,45 +294,22 @@ export default function LabRoom({ labItems, strings, selectedId, dispatch, canva
 
         // Draw attachment point markers in string-picking mode
         if (stringMode?.pickingEnd) {
-          const pickingMiddle = stringMode.pickingEnd === "M";
           for (const it of placed) {
             if (it.type === "string") continue;
-            // For middle point, only highlight pulleys
-            if (pickingMiddle && it.type !== "pulley") continue;
-
-            if (pickingMiddle) {
-              // Highlight the entire pulley for middle point selection
-              const pw = it.props.width || 28;
-              const ph = it.props.height || 28;
-              const pcx = it.x + pw / 2;
-              const pcy = it.y + ph / 2;
-              ctx.fillStyle = "rgba(187,153,68,0.3)";
+            const pts = getAttachPoints(it);
+            for (const pt of pts) {
+              const { x: px, y: py } = pt.getXY();
+              ctx.fillStyle = "rgba(126,184,255,0.25)";
               ctx.beginPath();
-              ctx.arc(pcx, pcy, pw / 2 + 5, 0, Math.PI * 2);
+              ctx.arc(px, py, 7, 0, Math.PI * 2);
               ctx.fill();
-              ctx.strokeStyle = "#bb9944";
-              ctx.lineWidth = 2;
-              ctx.setLineDash([4, 4]);
+              ctx.strokeStyle = "#7eb8ff";
+              ctx.lineWidth = 1.5;
+              ctx.setLineDash([3, 3]);
               ctx.beginPath();
-              ctx.arc(pcx, pcy, pw / 2 + 5, 0, Math.PI * 2);
+              ctx.arc(px, py, 7, 0, Math.PI * 2);
               ctx.stroke();
               ctx.setLineDash([]);
-            } else {
-              const pts = getAttachPoints(it);
-              for (const pt of pts) {
-                const { x: px, y: py } = pt.getXY();
-                ctx.fillStyle = "rgba(126,184,255,0.25)";
-                ctx.beginPath();
-                ctx.arc(px, py, 7, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.strokeStyle = "#7eb8ff";
-                ctx.lineWidth = 1.5;
-                ctx.setLineDash([3, 3]);
-                ctx.beginPath();
-                ctx.arc(px, py, 7, 0, Math.PI * 2);
-                ctx.stroke();
-                ctx.setLineDash([]);
-              }
             }
           }
         }
@@ -453,37 +325,6 @@ export default function LabRoom({ labItems, strings, selectedId, dispatch, canva
             ctx.roundRect(sel.x - 3, sel.y - 3, (sel.props.width || 40) + 6, (sel.props.height || 30) + 6, 6);
             ctx.stroke();
             ctx.setLineDash([]);
-          }
-        }
-
-        // Draw "held" indicators for held items
-        for (const item of placed) {
-          if (item.props.isHeld) {
-            const iw = item.props.width || 40;
-            const ih = item.props.height || 30;
-            const icx = item.x + iw / 2;
-            const icy = item.y + ih / 2;
-
-            // Pulsing hand/hold indicator
-            ctx.fillStyle = "rgba(255,200,50,0.3)";
-            ctx.beginPath();
-            ctx.arc(icx, icy, Math.max(iw, ih) / 2 + 8, 0, Math.PI * 2);
-            ctx.fill();
-
-            ctx.strokeStyle = "#ffcc33";
-            ctx.lineWidth = 2;
-            ctx.setLineDash([4, 4]);
-            ctx.beginPath();
-            ctx.arc(icx, icy, Math.max(iw, ih) / 2 + 8, 0, Math.PI * 2);
-            ctx.stroke();
-            ctx.setLineDash([]);
-
-            // "HELD" label
-            ctx.fillStyle = "#ffcc33";
-            ctx.font = "bold 10px sans-serif";
-            ctx.textAlign = "center";
-            ctx.fillText("HELD", icx, item.y - 8);
-            ctx.textAlign = "start";
           }
         }
 
@@ -576,9 +417,6 @@ export default function LabRoom({ labItems, strings, selectedId, dispatch, canva
 
   function canvasXY(e) {
     const r = canvasRef.current.getBoundingClientRect();
-    // Use actual canvas size for accurate coordinate conversion
-    const actualW = r.width;
-    const actualH = r.height;
 
     // Determine the logical region being viewed
     let viewMinX = 0, viewMaxX = LOGICAL_W, viewMinY = 0, viewMaxY = LOGICAL_H;
@@ -591,12 +429,12 @@ export default function LabRoom({ labItems, strings, selectedId, dispatch, canva
     const viewW = viewMaxX - viewMinX;
     const viewH = viewMaxY - viewMinY;
 
-    // Calculate scale and offset based on actual canvas size
-    const scaleX = actualW / viewW;
-    const scaleY = actualH / viewH;
+    // Calculate the same scale and offset used in rendering
+    const scaleX = displayW / viewW;
+    const scaleY = displayH / viewH;
     const scale = Math.min(scaleX, scaleY);
-    const offsetX = (actualW - viewW * scale) / 2;
-    const offsetY = (actualH - viewH * scale) / 2;
+    const offsetX = (displayW - viewW * scale) / 2;
+    const offsetY = (displayH - viewH * scale) / 2;
 
     // Get position relative to canvas element
     const px = e.clientX - r.left;
@@ -606,36 +444,6 @@ export default function LabRoom({ labItems, strings, selectedId, dispatch, canva
     return {
       x: viewMinX + (px - offsetX) / scale,
       y: viewMinY + (py - offsetY) / scale
-    };
-  }
-
-  // Convert logical coordinates to screen coordinates (relative to canvas)
-  function logicalToScreen(lx, ly) {
-    let viewMinX = 0, viewMaxX = LOGICAL_W, viewMinY = 0, viewMaxY = LOGICAL_H;
-    if (zoomRegion) {
-      viewMinX = zoomRegion.minX;
-      viewMaxX = zoomRegion.maxX;
-      viewMinY = zoomRegion.minY;
-      viewMaxY = zoomRegion.maxY;
-    }
-    const viewW = viewMaxX - viewMinX;
-    const viewH = viewMaxY - viewMinY;
-
-    // Use actual canvas size for calculations
-    const cv = canvasRef.current;
-    const actualW = cv ? cv.clientWidth : displayW;
-    const actualH = cv ? cv.clientHeight : displayH;
-
-    const scaleX = actualW / viewW;
-    const scaleY = actualH / viewH;
-    const scale = Math.min(scaleX, scaleY);
-    const offsetX = (actualW - viewW * scale) / 2;
-    const offsetY = (actualH - viewH * scale) / 2;
-
-    return {
-      x: offsetX + (lx - viewMinX) * scale,
-      y: offsetY + (ly - viewMinY) * scale,
-      scale
     };
   }
 
@@ -779,26 +587,9 @@ export default function LabRoom({ labItems, strings, selectedId, dispatch, canva
     if (stringMode?.pickingEnd) {
       const it = itemAt(x, y);
       if (it && it.type !== "string") {
-        // For middle point (M), only allow pulleys and auto-attach to "over"
-        if (stringMode.pickingEnd === "M") {
-          if (it.type === "pulley") {
-            dispatch({
-              type: "ADD_STRING",
-              str: {
-                stringOwnerId: stringMode.stringId,
-                end: "M",
-                targetId: it.id,
-                targetPoint: "over"
-              }
-            });
-            setStringMode(null);
-          }
-          // If not a pulley, do nothing
-        } else {
-          const pts = getAttachPoints(it);
-          if (pts.length > 0) {
-            setAttachMenu({ itemId: it.id, screenX: e.clientX, screenY: e.clientY, points: pts });
-          }
+        const pts = getAttachPoints(it);
+        if (pts.length > 0) {
+          setAttachMenu({ itemId: it.id, screenX: e.clientX, screenY: e.clientY, points: pts });
         }
       }
       return;
@@ -938,33 +729,37 @@ export default function LabRoom({ labItems, strings, selectedId, dispatch, canva
 
     const it = labItems.find(i => i.id === drag.iid);
 
-    // Snap pulley to track end or rod stand hook
+    // Snap pulley to track end
     if (it?.type === "pulley") {
       const tracks = labItems.filter(i => i.type === "track" && !i.props.inTray);
-      const rodStands = labItems.filter(i => i.type === "rodStand" && !i.props.inTray);
       let clamped = false;
-      const pcx = it.x + (it.props.width || 28) / 2;
-      const pcy = it.y + (it.props.height || 28) / 2;
 
-      // Check rod stands first (they hang pulleys)
-      for (const rs of rodStands) {
-        const rsw = rs.props.width || 60;
-        const armLength = rs.props.armLength || 50;
-        const clampY = rs.y + 15;
-        const clampH = 14;
-        const armY = clampY + clampH / 2;
-        const hookX = rs.x + rsw / 2 + 7 + armLength;
-        const hookY = armY + 2.5 + 18;
+      for (const tr of tracks) {
+        const tw = tr.props.width || 480;
+        const pcx = it.x + (it.props.width || 28) / 2;
 
-        // Check if pulley is near the hook
-        if (Math.abs(pcx - hookX) < 25 && Math.abs(pcy - hookY) < 25) {
+        if (Math.abs(pcx - tr.x) < 25 && Math.abs(it.y - tr.y) < 30) {
           dispatch({
             type: "UPD",
             id: it.id,
             u: {
-              x: hookX - (it.props.width || 28) / 2,
-              y: hookY - 4,
-              props: { ...it.props, isDragging: false, velocity: 0, velocityY: 0, onSurface: "rodStand", clampedToRodStand: rs.id, clampedToTrack: null }
+              x: tr.x - (it.props.width || 28) / 2,
+              y: tr.y - 6,
+              props: { ...it.props, isDragging: false, velocity: 0, velocityY: 0, onSurface: "track", clampedToTrack: tr.id }
+            }
+          });
+          clamped = true;
+          break;
+        }
+
+        if (Math.abs(pcx - (tr.x + tw)) < 25 && Math.abs(it.y - tr.y) < 30) {
+          dispatch({
+            type: "UPD",
+            id: it.id,
+            u: {
+              x: tr.x + tw - (it.props.width || 28) / 2,
+              y: tr.y - 6,
+              props: { ...it.props, isDragging: false, velocity: 0, velocityY: 0, onSurface: "track", clampedToTrack: tr.id }
             }
           });
           clamped = true;
@@ -972,43 +767,8 @@ export default function LabRoom({ labItems, strings, selectedId, dispatch, canva
         }
       }
 
-      // Check tracks
       if (!clamped) {
-        for (const tr of tracks) {
-          const tw = tr.props.width || 480;
-
-          if (Math.abs(pcx - tr.x) < 25 && Math.abs(it.y - tr.y) < 30) {
-            dispatch({
-              type: "UPD",
-              id: it.id,
-              u: {
-                x: tr.x - (it.props.width || 28) / 2,
-                y: tr.y - 6,
-                props: { ...it.props, isDragging: false, velocity: 0, velocityY: 0, onSurface: "track", clampedToTrack: tr.id, clampedToRodStand: null }
-              }
-            });
-            clamped = true;
-            break;
-          }
-
-          if (Math.abs(pcx - (tr.x + tw)) < 25 && Math.abs(it.y - tr.y) < 30) {
-            dispatch({
-              type: "UPD",
-              id: it.id,
-              u: {
-                x: tr.x + tw - (it.props.width || 28) / 2,
-                y: tr.y - 6,
-                props: { ...it.props, isDragging: false, velocity: 0, velocityY: 0, onSurface: "track", clampedToTrack: tr.id, clampedToRodStand: null }
-              }
-            });
-            clamped = true;
-            break;
-          }
-        }
-      }
-
-      if (!clamped) {
-        dispatch({ type: "UPD", id: it.id, u: { props: { ...it.props, isDragging: false, clampedToTrack: null, clampedToRodStand: null } } });
+        dispatch({ type: "UPD", id: it.id, u: { props: { ...it.props, isDragging: false, clampedToTrack: null } } });
       }
     }
     // Snap bubble level, motion detector, mass hanger onto track surface
@@ -1068,9 +828,6 @@ export default function LabRoom({ labItems, strings, selectedId, dispatch, canva
       const cv = canvasRef.current;
       if (cv) {
         const r = cv.getBoundingClientRect();
-        // Use actual canvas size for coordinate conversion
-        const actualW = r.width;
-        const actualH = r.height;
 
         // Calculate scale and offset (same as canvasXY and rendering)
         let viewMinX = 0, viewMaxX = LOGICAL_W, viewMinY = 0, viewMaxY = LOGICAL_H;
@@ -1082,11 +839,11 @@ export default function LabRoom({ labItems, strings, selectedId, dispatch, canva
         }
         const viewW = viewMaxX - viewMinX;
         const viewH = viewMaxY - viewMinY;
-        const scaleX = actualW / viewW;
-        const scaleY = actualH / viewH;
+        const scaleX = displayW / viewW;
+        const scaleY = displayH / viewH;
         const scale = Math.min(scaleX, scaleY);
-        const offsetX = (actualW - viewW * scale) / 2;
-        const offsetY = (actualH - viewH * scale) / 2;
+        const offsetX = (displayW - viewW * scale) / 2;
+        const offsetY = (displayH - viewH * scale) / 2;
 
         // Convert to logical coordinates
         const px = e.clientX - r.left;
@@ -1159,19 +916,17 @@ export default function LabRoom({ labItems, strings, selectedId, dispatch, canva
         background: "#d8dce2",
         flex: 1,
         minHeight: 0,
-        minWidth: 0,
         overflow: "hidden"
       }}
     >
       <canvas
         ref={canvasRef}
         style={{
-          width: "100%",
-          height: "100%",
-          maxWidth: displayW,
-          maxHeight: displayH,
+          width: displayW,
+          height: displayH,
           cursor: zoomSelectMode ? "crosshair" : (stringDraw?.drawing ? "crosshair" : "default"),
-          display: "block"
+          display: "block",
+          flexShrink: 0
         }}
         onMouseDown={(e) => {
           const { x, y } = canvasXY(e);
@@ -1269,13 +1024,7 @@ export default function LabRoom({ labItems, strings, selectedId, dispatch, canva
       />
 
       {/* Zoom selection rectangle */}
-      {zoomSelectMode && zoomDrag && (() => {
-        const cv = canvasRef.current;
-        if (!cv) return null;
-        const actualW = cv.clientWidth;
-        const actualH = cv.clientHeight;
-        if (actualW <= 0 || actualH <= 0) return null;
-
+      {zoomSelectMode && zoomDrag && displayW > 0 && displayH > 0 && (() => {
         // Convert logical coords to screen coords for display
         let viewMinX = 0, viewMaxX = LOGICAL_W, viewMinY = 0, viewMaxY = LOGICAL_H;
         if (zoomRegion) {
@@ -1286,11 +1035,11 @@ export default function LabRoom({ labItems, strings, selectedId, dispatch, canva
         }
         const viewW = Math.max(1, viewMaxX - viewMinX);
         const viewH = Math.max(1, viewMaxY - viewMinY);
-        const scaleX = actualW / viewW;
-        const scaleY = actualH / viewH;
+        const scaleX = displayW / viewW;
+        const scaleY = displayH / viewH;
         const scale = Math.min(scaleX, scaleY);
-        const offsetX = (actualW - viewW * scale) / 2;
-        const offsetY = (actualH - viewH * scale) / 2;
+        const offsetX = (displayW - viewW * scale) / 2;
+        const offsetY = (displayH - viewH * scale) / 2;
 
         const screenX1 = offsetX + (zoomDrag.startX - viewMinX) * scale;
         const screenY1 = offsetY + (zoomDrag.startY - viewMinY) * scale;
@@ -1336,42 +1085,8 @@ export default function LabRoom({ labItems, strings, selectedId, dispatch, canva
           ? "Draw the string path - Click to finish, Right-click to cancel"
           : zoomSelectMode
             ? "Drag a rectangle to zoom into that region"
-            : drag
-              ? "Press SPACEBAR while dragging to HOLD item in place"
-              : "Click cart for controls • Spacebar+drag to hold • Right-click to return"}
+            : "Shift+click cart to push - Drag knobs to level track - Drag meter stick ends to rotate - Right-click to return"}
       </div>
-
-      {/* Held items release buttons */}
-      {[...heldItems].map(id => {
-        const item = labItems.find(i => i.id === id && !i.props.inTray);
-        if (!item) return null;
-        const iw = item.props.width || 40;
-        const screenPos = logicalToScreen(item.x + iw / 2, item.y);
-        return (
-          <button
-            key={id}
-            onClick={() => releaseHeldItem(id)}
-            style={{
-              position: "absolute",
-              left: screenPos.x - 30,
-              top: screenPos.y - 35,
-              padding: "4px 12px",
-              background: "linear-gradient(135deg,#ffcc33,#ff9900)",
-              border: "none",
-              borderRadius: 4,
-              color: "#333",
-              fontSize: 10,
-              fontWeight: 700,
-              cursor: "pointer",
-              fontFamily: "inherit",
-              boxShadow: "0 2px 8px rgba(255,150,0,0.4)",
-              zIndex: 20
-            }}
-          >
-            Release
-          </button>
-        );
-      })}
 
       {/* Zoom controls */}
       <div style={{
@@ -1432,243 +1147,6 @@ export default function LabRoom({ labItems, strings, selectedId, dispatch, canva
         )}
       </div>
 
-      {/* Action Sequence button */}
-      <button
-        onClick={() => setShowActionPanel(!showActionPanel)}
-        style={{
-          position: "absolute",
-          top: 10,
-          right: 10,
-          padding: "4px 10px",
-          background: showActionPanel ? "rgba(255,200,50,0.3)" : "rgba(20,20,30,0.9)",
-          border: "1px solid " + (showActionPanel ? "#ffcc33" : "#3a3a4a"),
-          borderRadius: 6,
-          color: showActionPanel ? "#ffcc33" : "#aaa",
-          fontSize: 10,
-          cursor: "pointer",
-          fontWeight: 500,
-          zIndex: 15
-        }}
-      >
-        ⚡ Actions
-      </button>
-
-      {/* Action Sequence Panel */}
-      {showActionPanel && (
-        <div style={{
-          position: "absolute",
-          top: 40,
-          right: 10,
-          width: "min(260px, calc(100% - 20px))",
-          maxHeight: "calc(100% - 60px)",
-          overflowY: "auto",
-          background: "rgba(20,20,30,0.95)",
-          border: "1px solid #3a3a4a",
-          borderRadius: 8,
-          padding: 12,
-          zIndex: 20,
-          boxShadow: "0 4px 20px rgba(0,0,0,0.4)"
-        }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#ffcc33", marginBottom: 8 }}>
-            Action Sequence
-          </div>
-          <div style={{ fontSize: 9, color: "#888", marginBottom: 10 }}>
-            Set up actions to run simultaneously or with delays
-          </div>
-
-          {/* Current sequence */}
-          {actionSequence.length > 0 && (
-            <div style={{ marginBottom: 10 }}>
-              {actionSequence.map((action, idx) => (
-                <div key={idx} style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  padding: "4px 8px",
-                  background: "rgba(255,255,255,0.05)",
-                  borderRadius: 4,
-                  marginBottom: 4,
-                  fontSize: 10
-                }}>
-                  <span style={{ color: "#ffcc33", fontWeight: 600 }}>{idx + 1}.</span>
-                  <span style={{ color: "#ccc", flex: 1 }}>
-                    {action.type === "release" && "Release held item"}
-                    {action.type === "startDetector" && "Start detector"}
-                    {action.type === "stopDetector" && "Stop detector"}
-                    {action.type === "pushCart" && `Push cart ${action.direction > 0 ? "→" : "←"}`}
-                  </span>
-                  <input
-                    type="number"
-                    min="0"
-                    max="5000"
-                    step="100"
-                    value={action.delay}
-                    onChange={e => {
-                      const newSeq = [...actionSequence];
-                      newSeq[idx].delay = parseInt(e.target.value) || 0;
-                      setActionSequence(newSeq);
-                    }}
-                    style={{
-                      width: 45,
-                      padding: "2px 4px",
-                      background: "#2a2a3a",
-                      border: "1px solid #3a3a4a",
-                      borderRadius: 3,
-                      color: "#aaa",
-                      fontSize: 9,
-                      textAlign: "right"
-                    }}
-                  />
-                  <span style={{ fontSize: 8, color: "#666" }}>ms</span>
-                  <button
-                    onClick={() => setActionSequence(actionSequence.filter((_, i) => i !== idx))}
-                    style={{
-                      width: 16,
-                      height: 16,
-                      background: "transparent",
-                      border: "none",
-                      color: "#ff6666",
-                      fontSize: 10,
-                      cursor: "pointer"
-                    }}
-                  >×</button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Add action buttons */}
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 10 }}>
-            {heldItems.size > 0 && (
-              <button
-                onClick={() => {
-                  const heldId = [...heldItems][0];
-                  setActionSequence([...actionSequence, { type: "release", targetId: heldId, delay: 0 }]);
-                }}
-                style={{
-                  padding: "3px 8px",
-                  background: "rgba(255,200,50,0.2)",
-                  border: "1px solid #ffcc33",
-                  borderRadius: 3,
-                  color: "#ffcc33",
-                  fontSize: 9,
-                  cursor: "pointer"
-                }}
-              >
-                + Release
-              </button>
-            )}
-            {labItems.some(i => i.type === "motionDetector" && !i.props.inTray) && (
-              <>
-                <button
-                  onClick={() => setActionSequence([...actionSequence, { type: "startDetector", delay: 0 }])}
-                  style={{
-                    padding: "3px 8px",
-                    background: "rgba(100,200,100,0.2)",
-                    border: "1px solid #66cc66",
-                    borderRadius: 3,
-                    color: "#66cc66",
-                    fontSize: 9,
-                    cursor: "pointer"
-                  }}
-                >
-                  + Start Detector
-                </button>
-                <button
-                  onClick={() => setActionSequence([...actionSequence, { type: "stopDetector", delay: 0 }])}
-                  style={{
-                    padding: "3px 8px",
-                    background: "rgba(200,100,100,0.2)",
-                    border: "1px solid #cc6666",
-                    borderRadius: 3,
-                    color: "#cc6666",
-                    fontSize: 9,
-                    cursor: "pointer"
-                  }}
-                >
-                  + Stop Detector
-                </button>
-              </>
-            )}
-            {labItems.filter(i => i.type === "cart" && !i.props.inTray).map(cart => (
-              <div key={cart.id} style={{ display: "flex", gap: 2 }}>
-                <button
-                  onClick={() => setActionSequence([...actionSequence, { type: "pushCart", targetId: cart.id, direction: -1, delay: 0 }])}
-                  style={{
-                    padding: "3px 6px",
-                    background: "rgba(255,100,100,0.2)",
-                    border: "1px solid #ff6666",
-                    borderRadius: 3,
-                    color: "#ff6666",
-                    fontSize: 9,
-                    cursor: "pointer"
-                  }}
-                >
-                  + ← Push
-                </button>
-                <button
-                  onClick={() => setActionSequence([...actionSequence, { type: "pushCart", targetId: cart.id, direction: 1, delay: 0 }])}
-                  style={{
-                    padding: "3px 6px",
-                    background: "rgba(100,200,100,0.2)",
-                    border: "1px solid #66cc66",
-                    borderRadius: 3,
-                    color: "#66cc66",
-                    fontSize: 9,
-                    cursor: "pointer"
-                  }}
-                >
-                  + Push →
-                </button>
-              </div>
-            ))}
-          </div>
-
-          {/* Run button */}
-          {actionSequence.length > 0 && (
-            <div style={{ display: "flex", gap: 6 }}>
-              <button
-                onClick={runActionSequence}
-                disabled={sequenceRunning}
-                style={{
-                  flex: 1,
-                  padding: "6px 12px",
-                  background: sequenceRunning ? "#555" : "linear-gradient(135deg,#ffcc33,#ff9900)",
-                  border: "none",
-                  borderRadius: 4,
-                  color: sequenceRunning ? "#888" : "#222",
-                  fontSize: 11,
-                  fontWeight: 700,
-                  cursor: sequenceRunning ? "default" : "pointer"
-                }}
-              >
-                {sequenceRunning ? "Running..." : "▶ Run Sequence"}
-              </button>
-              <button
-                onClick={() => setActionSequence([])}
-                style={{
-                  padding: "6px 10px",
-                  background: "rgba(255,255,255,0.1)",
-                  border: "1px solid #3a3a4a",
-                  borderRadius: 4,
-                  color: "#888",
-                  fontSize: 10,
-                  cursor: "pointer"
-                }}
-              >
-                Clear
-              </button>
-            </div>
-          )}
-
-          {actionSequence.length === 0 && (
-            <div style={{ fontSize: 9, color: "#666", textAlign: "center", padding: 10 }}>
-              Add actions above to create a sequence
-            </div>
-          )}
-        </div>
-      )}
-
       {/* Context menu */}
       {ctxMenu && (
         <>
@@ -1719,19 +1197,14 @@ export default function LabRoom({ labItems, strings, selectedId, dispatch, canva
 
         const endA = strings.find(st => st.stringOwnerId === selStr.id && st.end === "A");
         const endB = strings.find(st => st.stringOwnerId === selStr.id && st.end === "B");
-        const endM = strings.find(st => st.stringOwnerId === selStr.id && st.end === "M");
         const endAItem = endA ? labItems.find(i => i.id === endA.targetId) : null;
         const endBItem = endB ? labItems.find(i => i.id === endB.targetId) : null;
-        const endMItem = endM ? labItems.find(i => i.id === endM.targetId) : null;
         const endAName = endAItem
           ? (EQUIPMENT.find(e => e.type === endAItem.type)?.name || endAItem.type) + " -> " + endA.targetPoint
           : "Not tied";
         const endBName = endBItem
           ? (EQUIPMENT.find(e => e.type === endBItem.type)?.name || endBItem.type) + " -> " + endB.targetPoint
           : "Not tied";
-        const endMName = endMItem
-          ? (EQUIPMENT.find(e => e.type === endMItem.type)?.name || endMItem.type)
-          : "Auto-detect";
         const picking = stringMode?.pickingEnd;
 
         return (
@@ -1746,14 +1219,14 @@ export default function LabRoom({ labItems, strings, selectedId, dispatch, canva
             padding: "10px 16px",
             zIndex: 25,
             boxShadow: "0 4px 20px rgba(0,0,0,0.4)",
-            minWidth: 260
+            minWidth: 220
           }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: "#e0e0e8", marginBottom: 8 }}>
               String Connections
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 10, color: "#888", fontWeight: 600, width: 50 }}>End A:</span>
+                <span style={{ fontSize: 10, color: "#888", fontWeight: 600, width: 40 }}>End A:</span>
                 <span style={{ fontSize: 10, color: endA ? "#7eb8ff" : "#555", flex: 1 }}>{endAName}</span>
                 <button
                   onClick={() => {
@@ -1778,35 +1251,8 @@ export default function LabRoom({ labItems, strings, selectedId, dispatch, canva
                   {endA ? "Detach" : picking === "A" ? "Click an item..." : "Tie"}
                 </button>
               </div>
-              {/* Middle drape point */}
-              <div style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(187,153,68,0.1)", padding: "4px 6px", borderRadius: 4, margin: "2px 0" }}>
-                <span style={{ fontSize: 10, color: "#bb9944", fontWeight: 600, width: 50 }}>Over:</span>
-                <span style={{ fontSize: 10, color: endM ? "#bb9944" : "#666", flex: 1 }}>{endMName}</span>
-                <button
-                  onClick={() => {
-                    if (endM) {
-                      dispatch({ type: "DEL_STRING", id: endM.id });
-                    } else {
-                      setStringMode({ stringId: selStr.id, pickingEnd: "M" });
-                    }
-                  }}
-                  style={{
-                    padding: "2px 8px",
-                    background: picking === "M" ? "rgba(187,153,68,0.2)" : "transparent",
-                    border: "1px solid " + (picking === "M" ? "#bb9944" : "#3a3a4a"),
-                    borderRadius: 4,
-                    color: endM ? "#ff8866" : picking === "M" ? "#bb9944" : "#888",
-                    fontSize: 9,
-                    cursor: "pointer",
-                    fontFamily: "inherit",
-                    fontWeight: 600
-                  }}
-                >
-                  {endM ? "Clear" : picking === "M" ? "Click pulley..." : "Set"}
-                </button>
-              </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 10, color: "#888", fontWeight: 600, width: 50 }}>End B:</span>
+                <span style={{ fontSize: 10, color: "#888", fontWeight: 600, width: 40 }}>End B:</span>
                 <span style={{ fontSize: 10, color: endB ? "#7eb8ff" : "#555", flex: 1 }}>{endBName}</span>
                 <button
                   onClick={() => {
@@ -1833,8 +1279,8 @@ export default function LabRoom({ labItems, strings, selectedId, dispatch, canva
               </div>
             </div>
             {picking && (
-              <div style={{ marginTop: 6, fontSize: 9, color: picking === "M" ? "#bb9944" : "#7eb8ff", textAlign: "center" }}>
-                {picking === "M" ? "Click on a pulley to drape string over it" : "Click on an item in the lab to see attachment points"}
+              <div style={{ marginTop: 6, fontSize: 9, color: "#7eb8ff", textAlign: "center" }}>
+                Click on an item in the lab to see attachment points
               </div>
             )}
           </div>
@@ -2073,241 +1519,6 @@ export default function LabRoom({ labItems, strings, selectedId, dispatch, canva
             style={{ width: cssW, height: cssH }}
           />
         </div>
-        );
-      })()}
-
-      {/* Cart push controls */}
-      {(() => {
-        const cart = placed.find(i => i.type === "cart" && i.id === selectedId);
-        if (!cart) return null;
-
-        const pushStrength = cart.props.pushStrength || 100;
-        const screenPos = logicalToScreen(cart.x, cart.y);
-
-        return (
-          <div
-            style={{
-              position: "absolute",
-              left: screenPos.x - 30,
-              top: screenPos.y - 65,
-              background: "rgba(20,20,30,0.92)",
-              border: "1px solid #3a3a4a",
-              borderRadius: 6,
-              padding: "8px 10px",
-              zIndex: 18,
-              boxShadow: "0 2px 10px rgba(0,0,0,0.3)",
-              display: "flex",
-              flexDirection: "column",
-              gap: 6,
-              pointerEvents: "auto"
-            }}
-            onMouseDown={e => e.stopPropagation()}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ fontSize: 9, color: "#aaa", fontWeight: 500 }}>Small</span>
-              <input
-                type="range"
-                min="20"
-                max="300"
-                step="10"
-                value={pushStrength}
-                onChange={e => {
-                  dispatch({
-                    type: "UPD",
-                    id: cart.id,
-                    u: { props: { ...cart.props, pushStrength: parseInt(e.target.value) } }
-                  });
-                }}
-                style={{ width: 80, height: 6, cursor: "pointer", accentColor: "#ff8844" }}
-              />
-              <span style={{ fontSize: 9, color: "#aaa", fontWeight: 500 }}>Large</span>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <button
-                onClick={() => {
-                  dispatch({
-                    type: "UPD",
-                    id: cart.id,
-                    u: { props: { ...cart.props, velocity: -pushStrength } }
-                  });
-                }}
-                style={{
-                  padding: "4px 10px",
-                  background: "linear-gradient(135deg,#ff6644,#cc4422)",
-                  border: "none",
-                  borderRadius: 4,
-                  color: "#fff",
-                  fontSize: 10,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  fontFamily: "inherit"
-                }}
-              >
-                ← Push
-              </button>
-              <button
-                onClick={() => {
-                  dispatch({
-                    type: "UPD",
-                    id: cart.id,
-                    u: { props: { ...cart.props, velocity: 0 } }
-                  });
-                }}
-                style={{
-                  padding: "4px 10px",
-                  background: "rgba(255,255,255,0.1)",
-                  border: "1px solid #3a3a4a",
-                  borderRadius: 4,
-                  color: "#aaa",
-                  fontSize: 10,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  fontFamily: "inherit"
-                }}
-              >
-                Stop
-              </button>
-              <button
-                onClick={() => {
-                  dispatch({
-                    type: "UPD",
-                    id: cart.id,
-                    u: { props: { ...cart.props, velocity: pushStrength } }
-                  });
-                }}
-                style={{
-                  padding: "4px 10px",
-                  background: "linear-gradient(135deg,#44aa66,#338855)",
-                  border: "none",
-                  borderRadius: 4,
-                  color: "#fff",
-                  fontSize: 10,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  fontFamily: "inherit"
-                }}
-              >
-                Push →
-              </button>
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* Meter stick / Protractor rotation controls */}
-      {(() => {
-        const item = placed.find(i => (i.type === "meterStick" || i.type === "protractor") && i.id === selectedId);
-        if (!item) return null;
-
-        const rotation = item.props.rotation || 0;
-        const rotationDeg = Math.round(rotation * 180 / Math.PI);
-        const itemName = item.type === "meterStick" ? "Meter Stick" : "Protractor";
-
-        return (
-          <div
-            style={{
-              position: "absolute",
-              left: item.x,
-              top: item.y - 50,
-              background: "rgba(20,20,30,0.92)",
-              border: "1px solid #3a3a4a",
-              borderRadius: 6,
-              padding: "8px 12px",
-              zIndex: 18,
-              boxShadow: "0 2px 10px rgba(0,0,0,0.3)",
-              display: "flex",
-              flexDirection: "column",
-              gap: 6,
-              pointerEvents: "auto",
-              minWidth: 160
-            }}
-            onMouseDown={e => e.stopPropagation()}
-          >
-            <div style={{ fontSize: 9, color: "#7eb8ff", fontWeight: 600 }}>{itemName} Rotation</div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <button
-                onClick={() => {
-                  dispatch({
-                    type: "UPD",
-                    id: item.id,
-                    u: { props: { ...item.props, rotation: rotation - Math.PI / 12 } }
-                  });
-                }}
-                style={{
-                  padding: "3px 8px",
-                  background: "rgba(255,255,255,0.1)",
-                  border: "1px solid #3a3a4a",
-                  borderRadius: 4,
-                  color: "#aaa",
-                  fontSize: 12,
-                  cursor: "pointer",
-                  fontFamily: "inherit"
-                }}
-              >
-                ↺
-              </button>
-              <input
-                type="range"
-                min="-180"
-                max="180"
-                step="5"
-                value={rotationDeg}
-                onChange={e => {
-                  dispatch({
-                    type: "UPD",
-                    id: item.id,
-                    u: { props: { ...item.props, rotation: parseInt(e.target.value) * Math.PI / 180 } }
-                  });
-                }}
-                style={{ flex: 1, height: 6, cursor: "pointer", accentColor: "#7eb8ff" }}
-              />
-              <button
-                onClick={() => {
-                  dispatch({
-                    type: "UPD",
-                    id: item.id,
-                    u: { props: { ...item.props, rotation: rotation + Math.PI / 12 } }
-                  });
-                }}
-                style={{
-                  padding: "3px 8px",
-                  background: "rgba(255,255,255,0.1)",
-                  border: "1px solid #3a3a4a",
-                  borderRadius: 4,
-                  color: "#aaa",
-                  fontSize: 12,
-                  cursor: "pointer",
-                  fontFamily: "inherit"
-                }}
-              >
-                ↻
-              </button>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <span style={{ fontSize: 9, color: "#888" }}>{rotationDeg}°</span>
-              <button
-                onClick={() => {
-                  dispatch({
-                    type: "UPD",
-                    id: item.id,
-                    u: { props: { ...item.props, rotation: 0 } }
-                  });
-                }}
-                style={{
-                  padding: "2px 8px",
-                  background: "transparent",
-                  border: "1px solid #3a3a4a",
-                  borderRadius: 4,
-                  color: "#666",
-                  fontSize: 9,
-                  cursor: "pointer",
-                  fontFamily: "inherit"
-                }}
-              >
-                Reset to 0°
-              </button>
-            </div>
-          </div>
         );
       })()}
 

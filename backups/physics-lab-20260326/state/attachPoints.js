@@ -52,18 +52,6 @@ export function getAttachPoints(item) {
         { key: "center", label: "Center", getXY: () => ({ x: cx, y: cy }) },
       ];
 
-    case "rodStand": {
-      const armLength = item.props.armLength || 50;
-      const clampY = item.y + 15;
-      const clampH = 14;
-      const armY = clampY + clampH / 2;
-      const hookX = item.x + w / 2 + 7 + armLength; // rodX + clampW/2 + armLength
-      const hookY = armY + 5 / 2 + 18; // armY + armH/2 + hook offset
-      return [
-        { key: "hook", label: "Hang from hook", getXY: () => ({ x: hookX, y: hookY }) },
-      ];
-    }
-
     default:
       return [];
   }

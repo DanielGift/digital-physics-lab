@@ -1,9 +1,7 @@
 import { useState, useRef } from "react";
 import { EQUIPMENT, ICON_MAP } from "./equipmentData";
 
-export default function EquipmentRoom({ dispatch, labItems = [] }) {
-  // Get items in tray
-  const trayItems = labItems.filter(i => i.props.inTray);
+export default function EquipmentRoom({ dispatch }) {
   const [selected, setSelected] = useState([]); // Array of selected equipment types
   const [dragSelect, setDragSelect] = useState(null); // { startX, startY, currentX, currentY }
   const justFinishedDrag = useRef(false); // Flag to prevent click from clearing selection after drag
@@ -115,35 +113,30 @@ export default function EquipmentRoom({ dispatch, labItems = [] }) {
     <div style={{
       flex: 1,
       display: "flex",
-      flexDirection: "column",
       position: "relative",
       overflow: "hidden",
-      minWidth: 0,
-      minHeight: 0,
       background: "linear-gradient(135deg,#0d0d14,#12121c,#0d0d14)"
     }}>
-      {/* Top area: grid + sidebar */}
-      <div style={{ display: "flex", flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden" }}>
-        {/* Main grid area - fixed layout, sidebar space always reserved */}
-        <div
-          ref={gridRef}
-          style={{
-            flex: 1,
-            minWidth: 0,
-            padding: "16px 24px",
-            paddingRight: 16,
-            display: "flex",
-            flexDirection: "column",
-            overflow: "auto",
-            position: "relative",
-            userSelect: "none"
-          }}
-          onClick={() => selected.length > 0 && !dragSelect && !justFinishedDrag.current && setSelected([])}
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseUp}
-        >
+      {/* Main grid area - shrinks when panel is open */}
+      <div
+        ref={gridRef}
+        style={{
+          flex: 1,
+          padding: "16px 24px",
+          paddingRight: panelOpen ? 16 : 24,
+          display: "flex",
+          flexDirection: "column",
+          overflow: "auto",
+          transition: "padding 0.3s ease",
+          position: "relative",
+          userSelect: "none"
+        }}
+        onClick={() => selected.length > 0 && !dragSelect && !justFinishedDrag.current && setSelected([])}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+      >
         <h2 style={{
           fontSize: 20,
           fontWeight: 700,
@@ -186,9 +179,7 @@ export default function EquipmentRoom({ dispatch, labItems = [] }) {
                   fontFamily: "inherit",
                   gap: 4,
                   boxShadow: isSelected ? "0 0 20px rgba(126,184,255,0.08)" : "none",
-                  transform: isSelected ? "translateY(-2px)" : "none",
-                  userSelect: "none",
-                  WebkitUserSelect: "none"
+                  transform: isSelected ? "translateY(-2px)" : "none"
                 }}
               >
                 <div style={{ height: 36, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -227,17 +218,17 @@ export default function EquipmentRoom({ dispatch, labItems = [] }) {
         )}
       </div>
 
-      {/* Info panel - always reserves space */}
+      {/* Info panel - part of flex layout, not overlay */}
       <div style={{
-        width: "min(300px, 35%)",
-        minWidth: 200,
-        background: panelOpen ? "linear-gradient(180deg,#15151f,#111118)" : "linear-gradient(135deg,#0d0d14,#12121c,#0d0d14)",
-        borderLeft: "1px solid #2a2a3a",
+        width: panelOpen ? 300 : 0,
+        minWidth: panelOpen ? 300 : 0,
+        background: "linear-gradient(180deg,#15151f,#111118)",
+        borderLeft: panelOpen ? "1px solid #2a2a3a" : "none",
         display: "flex",
         flexDirection: "column",
+        transition: "all 0.3s cubic-bezier(0.4,0,0.2,1)",
         overflow: "hidden",
-        flexShrink: 0,
-        position: "relative"
+        flexShrink: 0
       }}>
         {selected.length > 0 && (
           <>
@@ -438,82 +429,6 @@ export default function EquipmentRoom({ dispatch, labItems = [] }) {
               X
             </button>
           </>
-        )}
-      </div>
-      </div>
-
-      {/* Tray at bottom */}
-      <div style={{
-        height: 56,
-        flexShrink: 0,
-        background: "linear-gradient(180deg,rgba(20,20,28,0.95),rgba(14,14,20,0.98))",
-        borderTop: "1px solid #3a3a4a",
-        display: "flex",
-        alignItems: "center",
-        padding: "0 12px",
-        gap: 6,
-        overflowX: "auto"
-      }}>
-        <span style={{
-          fontSize: 9,
-          color: "#666",
-          fontWeight: 600,
-          textTransform: "uppercase",
-          letterSpacing: "0.06em",
-          marginRight: 4,
-          flexShrink: 0
-        }}>
-          Lab Tray ({trayItems.length})
-        </span>
-        {trayItems.length === 0 ? (
-          <span style={{ fontSize: 10, color: "#555", fontStyle: "italic" }}>
-            Select equipment above and click "Add to Lab Tray"
-          </span>
-        ) : (
-          trayItems.map(it => {
-            const eq = EQUIPMENT.find(e => e.type === it.type);
-            const Icon = ICON_MAP[it.type];
-            return (
-              <div
-                key={it.id}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  padding: "4px 10px",
-                  background: "rgba(255,255,255,0.05)",
-                  border: "1px solid #2a2a3a",
-                  borderRadius: 6,
-                  flexShrink: 0
-                }}
-              >
-                <div style={{ transform: "scale(0.5)", transformOrigin: "center", height: 20, display: "flex", alignItems: "center" }}>
-                  {Icon && <Icon />}
-                </div>
-                <span style={{ fontSize: 10, color: "#bbb", fontWeight: 500, whiteSpace: "nowrap" }}>
-                  {eq?.name || it.type}
-                </span>
-                <button
-                  onClick={() => dispatch({ type: "REM", id: it.id })}
-                  style={{
-                    width: 16,
-                    height: 16,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    background: "transparent",
-                    border: "none",
-                    color: "#666",
-                    fontSize: 10,
-                    cursor: "pointer",
-                    borderRadius: 3
-                  }}
-                >
-                  ×
-                </button>
-              </div>
-            );
-          })
         )}
       </div>
     </div>

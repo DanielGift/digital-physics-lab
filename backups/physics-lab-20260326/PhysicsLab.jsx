@@ -46,14 +46,13 @@ export default function PhysicsLab() {
   return (
     <div style={{
       height: "100%",
-      width: "100%",
+      maxHeight: "min(100vh, 650px)",
       display: "flex",
       flexDirection: "column",
       background: "#0a0a0f",
       color: "#e0e0e8",
       fontFamily: "'Segoe UI','Helvetica Neue',system-ui,sans-serif",
-      overflow: "hidden",
-      boxSizing: "border-box"
+      overflow: "hidden"
     }}>
       {/* Navigation */}
       <nav style={{
@@ -126,10 +125,10 @@ export default function PhysicsLab() {
       </nav>
 
       {/* Main content area */}
-      <div style={{ flex: 1, display: "flex", minHeight: 0, minWidth: 0, overflow: "hidden" }}>
+      <div style={{ flex: 1, display: "flex", minHeight: 0, overflow: "hidden" }}>
         {/* Equipment Room */}
-        <div style={{ display: s.activeTab === "equipment" ? "flex" : "none", flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden" }}>
-          <EquipmentRoom dispatch={dispatch} labItems={s.labItems} />
+        <div style={{ display: s.activeTab === "equipment" ? "flex" : "none", flex: 1, minHeight: 0 }}>
+          <EquipmentRoom dispatch={dispatch} />
         </div>
 
         {/* Lab Room */}
@@ -139,8 +138,6 @@ export default function PhysicsLab() {
             display: s.activeTab === "lab" ? "flex" : "none",
             flex: 1,
             minHeight: 0,
-            minWidth: 0,
-            overflow: "hidden",
             userSelect: dividerDrag ? "none" : "auto"
           }}
         >

@@ -134,28 +134,8 @@ export function deriv(v, t) {
 }
 
 // Calculate current string length between two attachment points, accounting for pulley
-// explicitPulley: if provided, use this pulley instead of auto-detecting
-function calcStringLength(a, b, pulleys, explicitPulley = null) {
-  // Helper to calculate length through a specific pulley
-  const calcThroughPulley = (p) => {
-    const pcx = p.x + (p.props.width || 28) / 2;
-    const pcy = p.y + (p.props.height || 28) / 2;
-    const pr = (p.props.width || 28) / 2;
-    const arcR = pr - 2;
-    const leftPt = a.x < b.x ? a : b;
-    const rightPt = a.x < b.x ? b : a;
-    const leftLen = Math.sqrt((leftPt.x - (pcx - arcR)) ** 2 + (leftPt.y - pcy) ** 2);
-    const rightLen = Math.sqrt((rightPt.x - (pcx + arcR)) ** 2 + (rightPt.y - pcy) ** 2);
-    const arcLen = Math.PI * arcR;
-    return { length: leftLen + arcLen + rightLen, pulley: p };
-  };
-
-  // If explicit pulley is set, use it
-  if (explicitPulley) {
-    return calcThroughPulley(explicitPulley);
-  }
-
-  // Auto-detect pulley in the path
+function calcStringLength(a, b, pulleys) {
+  // Check for pulley in the path
   for (const p of pulleys) {
     const pcx = p.x + (p.props.width || 28) / 2;
     const pcy = p.y + (p.props.height || 28) / 2;
@@ -165,7 +145,14 @@ function calcStringLength(a, b, pulleys, explicitPulley = null) {
     if (pcx >= minX - pr && pcx <= maxX + pr) {
       const lineY = a.y + (b.y - a.y) * ((pcx - a.x) / (b.x - a.x || 1));
       if (pcy <= lineY + 20 && pcy >= Math.min(a.y, b.y) - 50) {
-        return calcThroughPulley(p);
+        // Pulley found - calculate length through it
+        const arcR = pr - 2;
+        const leftPt = a.x < b.x ? a : b;
+        const rightPt = a.x < b.x ? b : a;
+        const leftLen = Math.sqrt((leftPt.x - (pcx - arcR)) ** 2 + (leftPt.y - pcy) ** 2);
+        const rightLen = Math.sqrt((rightPt.x - (pcx + arcR)) ** 2 + (rightPt.y - pcy) ** 2);
+        const arcLen = Math.PI * arcR;
+        return { length: leftLen + arcLen + rightLen, pulley: p };
       }
     }
   }
@@ -203,14 +190,8 @@ export function step(items, dt, strings = [], canvasWidth = 1000) {
   for (const item of u) {
     if (item.props.isDragging || item.props.inTray) continue;
 
-    // Items being held don't move
-    if (item.props.isHeld) continue;
-
     // Meter stick and protractor float - no gravity
     if (item.type === "meterStick" || item.type === "protractor") continue;
-
-    // Pulleys clamped to rod stands stay in place
-    if (item.type === "pulley" && item.props.clampedToRodStand) continue;
 
     const isCart = item.type === "cart";
     const isFreeBody = item.type !== "track";
@@ -351,7 +332,7 @@ export function step(items, dt, strings = [], canvasWidth = 1000) {
     const nvy = (vy || 0) + G * PX_M * dt;
     item.x += (vx || 0) * dt;
     item.y += nvy * dt;
-    item.props.velocity = (vx || 0) * 0.9998; // Very minimal air drag
+    item.props.velocity = (vx || 0) * 0.999;
     item.props.velocityY = nvy;
 
     const ih = item.props.height || 30;
@@ -366,12 +347,7 @@ export function step(items, dt, strings = [], canvasWidth = 1000) {
     if (itemBottom >= surface.surfaceY && nvy > 0) {
       item.y = surface.surfaceY - ih;
       item.props.velocityY = 0;
-      // Low friction on surfaces - slight damping per frame
-      // Table: very smooth, floor: slightly more friction
-      const frictionFactor = surface.type === "floor" ? 0.992 : 0.997;
-      item.props.velocity = (vx || 0) * frictionFactor;
-      // Stop if velocity is very small
-      if (Math.abs(item.props.velocity) < 0.5) item.props.velocity = 0;
+      item.props.velocity = (vx || 0) * (surface.type === "floor" ? 0 : 0.7);
     }
   }
 
@@ -666,188 +642,115 @@ export function step(items, dt, strings = [], canvasWidth = 1000) {
     }
   }
 
-  // String constraint enforcement - run multiple iterations for stability
+  // String constraint enforcement
   const stringItems = u.filter(i => i.type === "string" && !i.props.inTray && i.props.fixedLength);
-  const CONSTRAINT_ITERATIONS = 5;  // Multiple iterations for rigid string behavior
 
-  for (let iter = 0; iter < CONSTRAINT_ITERATIONS; iter++) {
-    for (const strItem of stringItems) {
-      const fixedLen = strItem.props.fixedLength;
-      if (!fixedLen) continue;
+  for (const strItem of stringItems) {
+    const fixedLen = strItem.props.fixedLength;
+    if (!fixedLen) continue;
 
-      // Find the two ends
-      const endA = strings.find(st => st.stringOwnerId === strItem.id && st.end === "A");
-      const endB = strings.find(st => st.stringOwnerId === strItem.id && st.end === "B");
-      if (!endA || !endB) continue;
+    // Find the two ends
+    const endA = strings.find(st => st.stringOwnerId === strItem.id && st.end === "A");
+    const endB = strings.find(st => st.stringOwnerId === strItem.id && st.end === "B");
+    if (!endA || !endB) continue;
 
-      const itemA = u.find(i => i.id === endA.targetId);
-      const itemB = u.find(i => i.id === endB.targetId);
-      if (!itemA || !itemB) continue;
-      if (itemA.props.inTray || itemB.props.inTray) continue;
+    const itemA = u.find(i => i.id === endA.targetId);
+    const itemB = u.find(i => i.id === endB.targetId);
+    if (!itemA || !itemB) continue;
+    if (itemA.props.inTray || itemB.props.inTray) continue;
 
-      const ptsA = getAttachPoints(itemA);
-      const ptsB = getAttachPoints(itemB);
-      const ptA = ptsA.find(p => p.key === endA.targetPoint);
-      const ptB = ptsB.find(p => p.key === endB.targetPoint);
-      if (!ptA || !ptB) continue;
+    const ptsA = getAttachPoints(itemA);
+    const ptsB = getAttachPoints(itemB);
+    const ptA = ptsA.find(p => p.key === endA.targetPoint);
+    const ptB = ptsB.find(p => p.key === endB.targetPoint);
+    if (!ptA || !ptB) continue;
 
-      const a = ptA.getXY();
-      const b = ptB.getXY();
+    const a = ptA.getXY();
+    const b = ptB.getXY();
 
-      // Check for explicit middle point (drape over pulley)
-      const endM = strings.find(st => st.stringOwnerId === strItem.id && st.end === "M");
-      let explicitPulley = null;
-      if (endM) {
-        const mItem = u.find(i => i.id === endM.targetId);
-        if (mItem && mItem.type === "pulley" && !mItem.props.inTray) {
-          explicitPulley = mItem;
-        }
-      }
+    const { length: currentLen, pulley } = calcStringLength(a, b, pulleys);
 
-      const { length: currentLen, pulley } = calcStringLength(a, b, pulleys, explicitPulley);
+    // If the string is stretched beyond its fixed length, apply constraint
+    if (currentLen > fixedLen + 2) {
+      const overshoot = currentLen - fixedLen;
 
-      // If the string is stretched beyond its fixed length, apply constraint
-      // Use tight tolerance to keep string rigid
-      if (currentLen > fixedLen + 0.5) {
-        const overshoot = currentLen - fixedLen;
+      // Determine which items can move
+      const aCanMove = !itemA.props.isDragging && itemA.type !== "track" && itemA.type !== "pulley";
+      const bCanMove = !itemB.props.isDragging && itemB.type !== "track" && itemB.type !== "pulley";
 
-        // Determine which items can move (not being dragged, not held, not fixed objects)
-        const aIsFixed = itemA.type === "track" ||
-                        (itemA.type === "pulley" && itemA.props.clampedToRodStand) ||
-                        (itemA.type === "pulley" && itemA.props.clampedToTrack);
-        const bIsFixed = itemB.type === "track" ||
-                        (itemB.type === "pulley" && itemB.props.clampedToRodStand) ||
-                        (itemB.type === "pulley" && itemB.props.clampedToTrack);
+      if (pulley) {
+        // With a pulley: typical Atwood machine setup
+        // If one item is a cart on track and other is a hanging mass
+        const cartItem = (itemA.type === "cart" && itemA.props.onTrack) ? itemA :
+                        (itemB.type === "cart" && itemB.props.onTrack) ? itemB : null;
+        const hangItem = (itemA.type === "massHanger") ? itemA :
+                        (itemB.type === "massHanger") ? itemB : null;
 
-        const aBeingDragged = itemA.props.isDragging;
-        const bBeingDragged = itemB.props.isDragging;
-        const aIsHeld = itemA.props.isHeld;
-        const bIsHeld = itemB.props.isHeld;
-
-        const aCanMove = !aBeingDragged && !aIsHeld && !aIsFixed;
-        const bCanMove = !bBeingDragged && !bIsHeld && !bIsFixed;
-
-        if (pulley) {
+        if (cartItem && hangItem) {
+          // Proper Atwood machine: maintain string length constraint
           const pcx = pulley.x + (pulley.props.width || 28) / 2;
-          const pcy = pulley.y + (pulley.props.height || 28) / 2;
+          const cartIsLeft = cartItem.x < pcx;
 
-          // When one item is dragged, the other should be pulled to compensate
-          // For pulley systems: if one side goes down, the other goes up
-
-          if (aBeingDragged && bCanMove) {
-            // A is being dragged, move B to compensate
-            // If B is below the pulley (hanging), move it up
-            // If B is beside the pulley (on track), move it toward pulley
-            if (b.y > pcy) {
-              // B is hanging - move up
-              itemB.y -= overshoot;
-            } else {
-              // B is beside pulley - move toward it
-              const bIsLeft = b.x < pcx;
-              if (bIsLeft) {
-                itemB.x += overshoot;
-              } else {
-                itemB.x -= overshoot;
-              }
-            }
-          } else if (bBeingDragged && aCanMove) {
-            // B is being dragged, move A to compensate
-            if (a.y > pcy) {
-              // A is hanging - move up
-              itemA.y -= overshoot;
-            } else {
-              // A is beside pulley - move toward it
-              const aIsLeft = a.x < pcx;
-              if (aIsLeft) {
-                itemA.x += overshoot;
-              } else {
-                itemA.x -= overshoot;
-              }
-            }
-          } else if (aCanMove && bCanMove) {
-            // Neither is being dragged - normal physics coupling
-            // Move both to satisfy constraint
-            const correction = overshoot / 2;
-
-            // Move each item appropriately based on position relative to pulley
-            if (a.y > pcy) {
-              itemA.y -= correction;
-            } else {
-              const aIsLeft = a.x < pcx;
-              itemA.x += aIsLeft ? correction : -correction;
-            }
-
-            if (b.y > pcy) {
-              itemB.y -= correction;
-            } else {
-              const bIsLeft = b.x < pcx;
-              itemB.x += bIsLeft ? correction : -correction;
-            }
-          } else if (aCanMove) {
-            // Only A can move
-            if (a.y > pcy) {
-              itemA.y -= overshoot;
-            } else {
-              const aIsLeft = a.x < pcx;
-              itemA.x += aIsLeft ? overshoot : -overshoot;
-            }
-          } else if (bCanMove) {
-            // Only B can move
-            if (b.y > pcy) {
-              itemB.y -= overshoot;
-            } else {
-              const bIsLeft = b.x < pcx;
-              itemB.x += bIsLeft ? overshoot : -overshoot;
-            }
+          // The string pulls them together - move to satisfy constraint
+          // Cart moves horizontally toward pulley, mass moves up
+          const correction = overshoot * 0.6;  // Strong correction
+          if (cartIsLeft) {
+            cartItem.x += correction;
+            cartItem.props.velocity = Math.abs(hangItem.props.velocityY || 0);
+          } else {
+            cartItem.x -= correction;
+            cartItem.props.velocity = -Math.abs(hangItem.props.velocityY || 0);
           }
+          hangItem.y -= correction;
 
-          // Couple velocities for non-dragged items
-          if (!aBeingDragged && !bBeingDragged && aCanMove && bCanMove) {
-            const aVel = Math.abs(itemA.props.velocityY || itemA.props.velocity || 0);
-            const bVel = Math.abs(itemB.props.velocityY || itemB.props.velocity || 0);
-            const avgVel = (aVel + bVel) / 2;
-
-            if (a.y > pcy) {
-              itemA.props.velocityY = avgVel;
-            }
-            if (b.y > pcy) {
-              itemB.props.velocityY = avgVel;
-            }
+          // Couple their velocities - cart velocity = hanging mass velocity (in magnitude)
+          const hangV = Math.abs(hangItem.props.velocityY || 0);
+          if (cartIsLeft) {
+            cartItem.props.velocity = hangV;
+          } else {
+            cartItem.props.velocity = -hangV;
           }
-        } else {
-          // No pulley - simple constraint between two items
-          if (aCanMove && bCanMove) {
-            // Move both items toward each other
-            const dx = b.x - a.x;
-            const dy = b.y - a.y;
-            const dist = Math.sqrt(dx * dx + dy * dy);
-            if (dist > 0) {
-              const nx = dx / dist;
-              const ny = dy / dist;
-              const move = overshoot / 2;
-              itemA.x += nx * move;
-              itemA.y += ny * move;
-              itemB.x -= nx * move;
-              itemB.y -= ny * move;
-            }
-          } else if (aCanMove) {
-            // Only A can move
-            const dx = b.x - a.x;
-            const dy = b.y - a.y;
-            const dist = Math.sqrt(dx * dx + dy * dy);
-            if (dist > 0) {
-              itemA.x += (dx / dist) * overshoot;
-              itemA.y += (dy / dist) * overshoot;
-            }
-          } else if (bCanMove) {
-            // Only B can move
-            const dx = a.x - b.x;
-            const dy = a.y - b.y;
-            const dist = Math.sqrt(dx * dx + dy * dy);
-            if (dist > 0) {
-              itemB.x += (dx / dist) * overshoot;
-              itemB.y += (dy / dist) * overshoot;
-            }
+          // Keep mass falling but coupled to cart motion
+          hangItem.props.velocityY = Math.abs(cartItem.props.velocity);
+        } else if (hangItem && !cartItem) {
+          // Mass hanger connected but no cart - just enforce position constraint
+          // The mass should be held at the string length
+          hangItem.y -= overshoot;
+          hangItem.props.velocityY = 0;
+        }
+      } else {
+        // No pulley - simple constraint between two items
+        if (aCanMove && bCanMove) {
+          // Move both items toward each other
+          const dx = b.x - a.x;
+          const dy = b.y - a.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist > 0) {
+            const nx = dx / dist;
+            const ny = dy / dist;
+            const move = overshoot / 2;
+            itemA.x += nx * move;
+            itemA.y += ny * move;
+            itemB.x -= nx * move;
+            itemB.y -= ny * move;
+          }
+        } else if (aCanMove) {
+          // Only A can move
+          const dx = b.x - a.x;
+          const dy = b.y - a.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist > 0) {
+            itemA.x += (dx / dist) * overshoot;
+            itemA.y += (dy / dist) * overshoot;
+          }
+        } else if (bCanMove) {
+          // Only B can move
+          const dx = a.x - b.x;
+          const dy = a.y - b.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist > 0) {
+            itemB.x += (dx / dist) * overshoot;
+            itemB.y += (dy / dist) * overshoot;
           }
         }
       }
