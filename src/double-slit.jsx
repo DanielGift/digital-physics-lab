@@ -12,7 +12,7 @@
  *    - Constructive interference (waves in phase) creates bright bands
  *    - Destructive interference (waves out of phase) creates dark bands
  *
- * 2. CLASSICAL PARTICLES (Tiny Balls mode):
+ * 2. CLASSICAL PARTICLES (Tiny Spheres mode):
  *    - Classical particles travel in straight lines through ONE slit or the other
  *    - They create TWO peaks on the detection screen (directly behind each slit)
  *    - NO interference pattern - particles don't interfere with themselves
@@ -226,7 +226,7 @@ function sampleFromDistribution(slitY1, slitY2, wavelength, slitWidth, hasObserv
 // MAIN REACT COMPONENT
 // =============================================================================
 export default function DoubleSlit() {
-  // Mode selection: 'water' (classical waves), 'light' (photons), 'particles' (classical balls)
+  // Mode selection: 'water' (classical waves), 'light' (photons), 'particles' (classical spheres)
   const [mode, setMode] = useState('water');
   const [isRunning, setIsRunning] = useState(true);
 
@@ -537,7 +537,7 @@ export default function DoubleSlit() {
   }
 
   /**
-   * Draw classical particles (tiny balls mode).
+   * Draw classical particles (tiny spheres mode).
    *
    * Classical particles travel in straight lines. Each particle goes through
    * exactly ONE slit (or bounces off the barrier). This is what we'd expect
@@ -771,7 +771,7 @@ export default function DoubleSlit() {
         drawPhotonWavePackets(ctx, particlesRef.current, slitY1, slitY2, wavelength, slitWidth, timeRef.current);
       }
 
-      // Draw classical particles (tiny balls mode)
+      // Draw classical particles (tiny spheres mode)
       if (mode === 'particles') {
         drawParticles(ctx, particlesRef.current, slitY1, slitY2, slitWidth);
       }
@@ -799,7 +799,7 @@ export default function DoubleSlit() {
       // -----------------------------------------------------------------------
       if (isRunning) {
 
-        // UPDATE CLASSICAL PARTICLES (Tiny Balls mode)
+        // UPDATE CLASSICAL PARTICLES (Tiny Spheres mode)
         if (mode === 'particles') {
           const updated = [];
           for (const p of particlesRef.current) {
@@ -935,7 +935,7 @@ export default function DoubleSlit() {
   const modeInfo = {
     water: "Water waves demonstrate classical wave interference. Waves always interfere - there is no observer effect for classical waves.",
     light: "Light behaves as a wave. In single photon mode, each photon travels as a wave through BOTH slits, interfering with itself!",
-    particles: "Classical particles (tiny balls) travel through one slit OR the other. No interference - just two peaks."
+    particles: "Classical particles (tiny spheres) travel through one slit OR the other. No interference - just two peaks."
   };
 
   const barrierToScreen = SCREEN_X - BARRIER_X;
@@ -994,7 +994,7 @@ export default function DoubleSlit() {
               {[
                 { id: 'water', label: 'Water Waves' },
                 { id: 'light', label: 'Light' },
-                { id: 'particles', label: 'Tiny Balls' }
+                { id: 'particles', label: 'Tiny Spheres' }
               ].map(m => (
                 <button
                   key={m.id}
