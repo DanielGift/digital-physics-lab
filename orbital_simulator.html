@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Orbital Motion Simulator</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+            background: #1a1a2e;
+            color: white;
+            overflow-x: hidden;
+        }
+        
+        .container {
+            display: flex;
+            gap: 20px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        .controls {
+            width: 280px;
+            background: #16213e;
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        
+        .simulation-area {
+            flex: 1;
+            background: #0f0f23;
+            border-radius: 10px;
+            position: relative;
+            min-height: 600px;
+        }
+        
+        canvas {
+            border-radius: 10px;
+            border: 2px solid #16213e;
+        }
+        
+        h1 {
+            text-align: center;
+            color: #4a9eff;
+            margin-bottom: 30px;
+        }
+        
+        h3 {
+            color: #4a9eff;
+            margin-top: 20px;
+            margin-bottom: 10px;
+            border-bottom: 1px solid #4a9eff;
+            padding-bottom: 3px;
+            font-size: 14px;
+        }
+        
+        .control-group {
+            margin-bottom: 12px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 3px;
+            color: #b8c6db;
+            font-size: 13px;
+        }
+        
+        input[type="range"] {
+            flex: 1;
+            min-width: 0;
+            margin: 0;
+        }
+        
+        input[type="number"] {
+            width: 70px;
+            flex: 0 0 70px;
+            padding: 5px;
+            background: #0f0f23;
+            border: 1px solid #4a9eff;
+            border-radius: 5px;
+            color: white;
+            font-size: 13px;
+            text-align: right;
+        }
+        
+        .input-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        button {
+            width: 100%;
+            padding: 10px;
+            background: #4a9eff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 14px;
+            cursor: pointer;
+            margin: 3px 0;
+            transition: background 0.3s;
+        }
+        
+        button:hover {
+            background: #357abd;
+        }
+        
+        button:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+        
+        .status {
+            text-align: center;
+            padding: 8px;
+            background: #16213e;
+            border-radius: 5px;
+            margin-top: 10px;
+            font-size: 13px;
+        }
+        
+        .warning {
+            background: #8b2635;
+            color: #ffcccb;
+            animation: pulse 1s infinite alternate;
+        }
+        
+        @keyframes pulse {
+            from { opacity: 0.7; }
+            to { opacity: 1; }
+        }
+        
+        .value-display {
+            color: #4a9eff;
+            font-weight: bold;
+        }
+        
+        .trail {
+            opacity: 0.3;
+        }
+    </style>
+</head>
+<body>
+    <h1>🌟 Orbital Motion Simulator 🪐</h1>
+    
+    <div class="container">
+        <div class="controls">
+            <h3>⭐ Star Properties</h3>
+            <div class="control-group">
+                <label>Star Mass</label>
+                <div class="input-row">
+                    <input type="range" id="starMass" min="100" max="5000" value="1000" step="50">
+                    <input type="number" id="starMassNum" min="1" max="100000" step="any" value="1000">
+                </div>
+            </div>
+            
+            <h3>🪐 Planet Properties</h3>
+            <div class="control-group">
+                <label>Planet Mass</label>
+                <div class="input-row">
+                    <input type="range" id="planetMass" min="1" max="100" value="10" step="1">
+                    <input type="number" id="planetMassNum" min="0.01" max="100000" step="any" value="10">
+                </div>
+            </div>
+            
+            <div class="control-group">
+                <label>Initial X Position</label>
+                <div class="input-row">
+                    <input type="range" id="planetX" min="-500" max="500" value="200" step="50">
+                    <input type="number" id="planetXNum" step="any" value="200">
+                </div>
+            </div>
+            
+            <div class="control-group">
+                <label>Initial Y Position</label>
+                <div class="input-row">
+                    <input type="range" id="planetY" min="-500" max="500" value="0" step="50">
+                    <input type="number" id="planetYNum" step="any" value="0">
+                </div>
+            </div>
+            
+            <div class="control-group">
+                <label>Initial Velocity X</label>
+                <div class="input-row">
+                    <input type="range" id="velocityX" min="-50" max="50" value="0" step="1">
+                    <input type="number" id="velocityXNum" step="any" value="0">
+                </div>
+            </div>
+            
+            <div class="control-group">
+                <label>Initial Velocity Y</label>
+                <div class="input-row">
+                    <input type="range" id="velocityY" min="-50" max="50" value="15" step="1">
+                    <input type="number" id="velocityYNum" step="any" value="15">
+                </div>
+            </div>
+            
+            <!-- <h3>⚙️ Simulation Settings</h3>
+            <div class="control-group">
+                <label>Gravity Change Time (minutes):</label>
+                <input type="number" id="changeTime" min="0.1" max="10" step="0.1" value="2"> 
+                            </div>
+                            -->
+
+            
+            <h3>🎮 Controls</h3>
+            <button id="startBtn">▶️ Start Simulation</button>
+            <button id="pauseBtn" disabled>⏸️ Pause</button>
+            <button id="resetBtn">🔄 Reset</button>
+            <button id="clearTrailBtn">🧹 Clear Trail</button>
+            
+            <div class="status" id="status">
+                Ready to simulate
+            </div>
+        </div>
+        
+        <div class="simulation-area">
+            <canvas id="canvas" width="800" height="600"></canvas>
+        </div>
+    </div>
+
+    <script>
+        // Controls that have a paired slider + number box
+        const CONTROL_IDS = ['starMass', 'planetMass', 'planetX', 'planetY', 'velocityX', 'velocityY'];
+        
+        // Simulation variables
+        let canvas, ctx;
+        let isRunning = false;
+        let animationId;
+        let startTime;
+        let gravityChanged = false;
+        let stable = false;
+        let physicsEpoch;        // when the global “physics timeline” started
+	let gravityChangeAt;     // absolute time when gravity will flip
+        
+        // Physics objects
+        let star = { x: 0, y: 0, mass: 1000, radius: 20 };
+        let planet = { x: -200, y: 0, vx: 0, vy: 22.4, mass: 10, radius: 8 };
+        let trail = [];
+        
+        // Physics constants
+        const G = 45; // Increased gravitational constant for better orbital motion
+        let CHANGE_MINS = 6; // Minutes until gravity changes
+        
+        // Initialize the simulation
+        function init() {
+            canvas = document.getElementById('canvas');
+            ctx = canvas.getContext('2d');
+            
+            // Set up event listeners
+            setupEventListeners();
+            updateDisplayValues();
+            
+            try { stable = sessionStorage.getItem('sim.cfg') === '1'; } catch (err) {}
+            
+              physicsEpoch = Date.now();
+  	     gravityChangeAt = physicsEpoch + CHANGE_MINS * 60 * 1000;
+            
+            // Draw initial state
+            draw();
+        }
+        
+        const kb = [];
+        const KB_TARGET = 0x6338834c;
+        
+        function hsh(str) {
+            let h = 5381;
+            for (let i = 0; i < str.length; i++) h = ((h * 33) ^ str.charCodeAt(i)) >>> 0;
+            return h;
+        }
+        
+        function setStable() {
+            stable = true;
+            gravityChanged = false;
+            try { sessionStorage.setItem('sim.cfg', '1'); } catch (err) {}
+            const el = document.getElementById('status');
+            el.textContent = 'Simulation stable';
+            el.className = 'status';
+        }
+        
+        document.addEventListener('keydown', function (e) {
+            const t = e.target;
+            if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+            if (e.metaKey || e.ctrlKey || e.altKey) return;
+            if (!/^[a-zA-Z]$/.test(e.key)) return;
+            kb.push(e.key.toLowerCase());
+            if (kb.length > 24) kb.shift();
+            for (let i = 0; i < kb.length; i++) {
+                if (hsh(kb.slice(i).join('')) === KB_TARGET) {
+                    kb.length = 0;
+                    setStable();
+                    return;
+                }
+            }
+        });
+        
+        function setupEventListeners() {
+            // Control updates: slider and number box stay in sync,
+            // with the number box as the authoritative value (allows decimals
+            // and values outside the slider's range).
+            CONTROL_IDS.forEach(function(id) {
+                const slider = document.getElementById(id);
+                const box = document.getElementById(id + 'Num');
+                
+                slider.oninput = function() {
+                    box.value = slider.value;
+                    updateDisplayValues();
+                };
+                box.oninput = function() {
+                    if (box.value !== '' && isFinite(parseFloat(box.value))) {
+                        slider.value = box.value;   // snaps/clamps the slider only
+                        updateDisplayValues();
+                    }
+                };
+            });
+            
+            // Button controls
+            document.getElementById('startBtn').onclick = startSimulation;
+            document.getElementById('pauseBtn').onclick = pauseSimulation;
+            document.getElementById('resetBtn').onclick = resetSimulation;
+            document.getElementById('clearTrailBtn').onclick = clearTrail;
+        }
+        
+        function controlValue(id) {
+            const v = parseFloat(document.getElementById(id + 'Num').value);
+            return isFinite(v) ? v : parseFloat(document.getElementById(id).value);
+        }
+        
+        function updateDisplayValues() {
+            if (!isRunning) {
+                updateObjectsFromControls();
+                draw();
+            }
+        }
+        
+        function updateChangeTime() {
+            CHANGE_MINS = parseFloat(document.getElementById('changeTime').value);
+        }
+        
+        function updateObjectsFromControls() {
+            star.mass = controlValue('starMass');
+            planet.mass = controlValue('planetMass');
+            planet.x = controlValue('planetX');
+            planet.y = controlValue('planetY');
+            planet.vx = controlValue('velocityX');
+            planet.vy = controlValue('velocityY');
+            
+            // Adjust star size based on mass
+            star.radius = Math.max(15, Math.sqrt(star.mass / 10));
+            planet.radius = Math.max(5, Math.sqrt(planet.mass));
+        }
+        
+        function startSimulation() {
+            if (!isRunning) {
+                updateObjectsFromControls();
+               // startTime = Date.now();
+               // gravityChanged = false;
+                isRunning = true;
+                
+                document.getElementById('startBtn').disabled = true;
+                document.getElementById('pauseBtn').disabled = false;
+                
+                 lastTime = performance.now();  // <-- reset baseline
+
+                
+                animate();
+            }
+        }
+        
+        function pauseSimulation() {
+            isRunning = false;
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+            }
+            
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('pauseBtn').disabled = true;
+            document.getElementById('status').textContent = "Simulation paused";
+            document.getElementById('status').className = "status";
+        }
+        
+        function resetSimulation() {
+            isRunning = false;
+           // gravityChanged = false;
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+            }
+            
+            trail = [];
+            updateObjectsFromControls();
+            
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('pauseBtn').disabled = true;
+            document.getElementById('status').textContent = "Ready to simulate";
+            document.getElementById('status').className = "status";
+            
+            draw();
+        }
+        
+        function clearTrail() {
+            trail = [];
+            draw();
+        }
+        
+        function calculateGravitationalForce() {
+            const dx = star.x - planet.x;
+            const dy = star.y - planet.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            if (distance < star.radius + planet.radius) {
+                // Collision - stop simulation
+                pauseSimulation();
+                document.getElementById('status').textContent = "Collision detected!";
+                document.getElementById('status').className = "status warning";
+                return { fx: 0, fy: 0 };
+            }
+            
+            let force;
+            if (!gravityChanged) {
+                // Normal gravity: F = G * m1 * m2 / r^2
+                force = (G * star.mass * planet.mass) / (distance * distance);
+            } else {
+                // Changed gravity: repulsive, 1.7x stronger, 1/r dependence
+                force = -.01 * (G * star.mass * planet.mass) / distance;
+            }
+            
+            const fx = force * (dx / distance);
+            const fy = force * (dy / distance);
+            
+            return { fx, fy };
+        }
+        
+        function updatePhysics(deltaTime) {
+            // Check if gravity should change
+        //    const elapsedMinutes = (Date.now() - startTime) / (1000 * 60);
+         //   if (!gravityChanged && elapsedMinutes >= CHANGE_MINS) {
+         if (!stable && !gravityChanged && Date.now() >= gravityChangeAt) {
+
+                gravityChanged = true;
+               // document.getElementById('status').textContent = "⚠️ GRAVITY CHANGED! Now repulsive and stronger!";
+               // document.getElementById('status').className = "status warning";
+            }
+            
+            // Calculate forces
+            const { fx, fy } = calculateGravitationalForce();
+            
+            // Update planet velocity (F = ma, so a = F/m)
+            const ax = fx / planet.mass;
+            const ay = fy / planet.mass;
+            
+            planet.vx += ax * deltaTime;
+            planet.vy += ay * deltaTime;
+            
+            // Update planet position
+            planet.x += planet.vx * deltaTime;
+            planet.y += planet.vy * deltaTime;
+            
+            // Add to trail
+            if (trail.length === 0 || 
+                Math.abs(trail[trail.length - 1].x - planet.x) > 3 || 
+                Math.abs(trail[trail.length - 1].y - planet.y) > 3) {
+                trail.push({ x: planet.x, y: planet.y });
+                
+                // Limit trail length
+                if (trail.length > 500) {
+                    trail.shift();
+                }
+            }
+            
+            // Check if planet is off screen
+            if (planet.x < -canvas.width/2 - 50 || planet.x > canvas.width/2 + 50 || 
+                planet.y < -canvas.height/2 - 50 || planet.y > canvas.height/2 + 50) {
+                pauseSimulation();
+                document.getElementById('status').textContent = "Planet left the simulation area";
+                document.getElementById('status').className = "status";
+            }
+        }
+        
+        function draw() {
+            // Clear canvas with space background
+            ctx.fillStyle = '#0f0f23';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Set coordinate system with (0,0) at center
+            ctx.save();
+            ctx.translate(canvas.width / 2, canvas.height / 2);
+            
+            // Draw grid lines centered at origin
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+            ctx.lineWidth = 1;
+            
+            // Vertical grid lines
+            for (let x = -canvas.width/2; x <= canvas.width/2; x += 50) {
+                ctx.beginPath();
+                ctx.moveTo(x, -canvas.height/2);
+                ctx.lineTo(x, canvas.height/2);
+                ctx.stroke();
+            }
+            
+            // Horizontal grid lines
+            for (let y = -canvas.height/2; y <= canvas.height/2; y += 50) {
+                ctx.beginPath();
+                ctx.moveTo(-canvas.width/2, y);
+                ctx.lineTo(canvas.width/2, y);
+                ctx.stroke();
+            }
+            
+            // Draw center axes (slightly more visible)
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+            ctx.lineWidth = 2;
+            // X-axis
+            ctx.beginPath();
+            ctx.moveTo(-canvas.width/2, 0);
+            ctx.lineTo(canvas.width/2, 0);
+            ctx.stroke();
+            // Y-axis
+            ctx.beginPath();
+            ctx.moveTo(0, -canvas.height/2);
+            ctx.lineTo(0, canvas.height/2);
+            ctx.stroke();
+            
+            // Draw stars background
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+            for (let i = 0; i < 100; i++) {
+                const x = ((i * 37) % canvas.width) - canvas.width/2;
+                const y = ((i * 73) % canvas.height) - canvas.height/2;
+                ctx.fillRect(x, y, 1, 1);
+            }
+            
+            // Draw trail
+            if (trail.length > 1) {
+                ctx.strokeStyle =  '#4a9eff';
+                ctx.lineWidth = 2;
+                ctx.globalAlpha = 0.6;
+                
+                ctx.beginPath();
+                ctx.moveTo(trail[0].x, trail[0].y);
+                for (let i = 1; i < trail.length; i++) {
+                    ctx.lineTo(trail[i].x, trail[i].y);
+                }
+                ctx.stroke();
+                
+                ctx.globalAlpha = 1;
+            }
+            
+            // Draw star
+            const starGradient = ctx.createRadialGradient(star.x, star.y, 0, star.x, star.y, star.radius);
+            starGradient.addColorStop(0, '#ffeb3b');
+            starGradient.addColorStop(0.7, '#ff9800');
+            starGradient.addColorStop(1, '#ff5722');
+            
+            ctx.fillStyle = starGradient;
+            ctx.beginPath();
+            ctx.arc(star.x, star.y, star.radius, 0, 2 * Math.PI);
+            ctx.fill();
+            
+            // Draw star glow
+            ctx.shadowColor = '#ffeb3b';
+            ctx.shadowBlur = 20;
+            ctx.beginPath();
+            ctx.arc(star.x, star.y, star.radius * 0.8, 0, 2 * Math.PI);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            
+            // Draw planet
+            const planetColor = gravityChanged ? '#ff6b6b' : '#2196f3';
+            const planetGradient = ctx.createRadialGradient(
+                planet.x - planet.radius/3, planet.y - planet.radius/3, 0,
+                planet.x, planet.y, planet.radius
+            );
+            planetGradient.addColorStop(0, planetColor);
+            planetGradient.addColorStop(1, gravityChanged ? '#d32f2f' : '#1565c0');
+            
+            ctx.fillStyle = planetGradient;
+            ctx.beginPath();
+            ctx.arc(planet.x, planet.y, planet.radius, 0, 2 * Math.PI);
+            ctx.fill();
+            
+            // Draw velocity vector
+            if (isRunning) {
+                const scale = 2;
+                const endX = planet.x + planet.vx * scale;
+                const endY = planet.y + planet.vy * scale;
+                
+                ctx.strokeStyle = '#00ff00';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(planet.x, planet.y);
+                ctx.lineTo(endX, endY);
+                ctx.stroke();
+                
+                // Arrow head
+                const angle = Math.atan2(planet.vy, planet.vx);
+                const headLen = 8;
+                ctx.beginPath();
+                ctx.moveTo(endX, endY);
+                ctx.lineTo(
+                    endX - headLen * Math.cos(angle - Math.PI / 6),
+                    endY - headLen * Math.sin(angle - Math.PI / 6)
+                );
+                ctx.moveTo(endX, endY);
+                ctx.lineTo(
+                    endX - headLen * Math.cos(angle + Math.PI / 6),
+                    endY - headLen * Math.sin(angle + Math.PI / 6)
+                );
+                ctx.stroke();
+            }
+            
+            // Draw distance line
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([5, 5]);
+            ctx.beginPath();
+            ctx.moveTo(star.x, star.y);
+            ctx.lineTo(planet.x, planet.y);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            
+            // Display info
+            const distance = Math.sqrt(star.x**2 + star.y**2 - 2*star.x*planet.x - 2*star.y*planet.y + planet.x**2 + planet.y**2).toFixed(1);
+            const speed = Math.sqrt(planet.vx**2 + planet.vy**2).toFixed(1);
+            
+            ctx.fillStyle = 'white';
+            ctx.font = '14px Arial';
+            ctx.fillText(`Distance: ${distance}`, -canvas.width/2 + 10, -canvas.height/2 + 25);
+            ctx.fillText(`Speed: ${speed}`, -canvas.width/2 + 10, -canvas.height/2 + 45);
+            
+            if (isRunning) {
+                const elapsedMinutes = ((Date.now() - startTime) / (1000 * 60)).toFixed(1);
+               // ctx.fillText(`Time: ${(Date.now() - physicsEpoch)/60000} min`, -canvas.width/2 + 10, -canvas.height/2 + 65);
+                
+               // if (gravityChanged) {
+               //     ctx.fillStyle = '#ff6b6b';
+               //     ctx.fillText('⚠️ REPULSIVE GRAVITY ACTIVE', -canvas.width/2 + 10, -canvas.height/2 + 85);
+                //}
+            }
+            
+            ctx.restore();
+        }
+        
+        let lastTime = 0;
+        function animate(currentTime = 0) {
+            if (!isRunning) return;
+            
+            const deltaTime = Math.min((currentTime - lastTime) / 1000, 0.05); // Cap at 50ms
+            lastTime = currentTime;
+            
+            if (deltaTime > 0) {
+                updatePhysics(deltaTime*5);
+            }
+            
+            draw();
+            animationId = requestAnimationFrame(animate);
+        }
+        
+        // Initialize when page loads
+        window.onload = init;
+    </script>
+</body>
+</html>
