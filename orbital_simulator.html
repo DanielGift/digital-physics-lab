@@ -569,13 +569,13 @@
             ctx.shadowBlur = 0;
             
             // Draw planet
-            const planetColor = gravityChanged ? '#ff6b6b' : '#2196f3';
+            const planetColor = '#2196f3';
             const planetGradient = ctx.createRadialGradient(
                 planet.x - planet.radius/3, planet.y - planet.radius/3, 0,
                 planet.x, planet.y, planet.radius
             );
             planetGradient.addColorStop(0, planetColor);
-            planetGradient.addColorStop(1, gravityChanged ? '#d32f2f' : '#1565c0');
+            planetGradient.addColorStop(1, '#1565c0');
             
             ctx.fillStyle = planetGradient;
             ctx.beginPath();
