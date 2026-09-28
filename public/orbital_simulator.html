@@ -236,6 +236,7 @@
         let startTime;
         let gravityChanged = false;
         let stable = false;
+        let hasStarted = false;   // a run is in progress (paused or not)
         let physicsEpoch;        // when the global “physics timeline” started
 	let gravityChangeAt;     // absolute time when gravity will flip
         
@@ -333,7 +334,7 @@
         }
         
         function updateDisplayValues() {
-            if (!isRunning) {
+            if (!hasStarted) {
                 updateObjectsFromControls();
                 draw();
             }
@@ -358,10 +359,17 @@
         
         function startSimulation() {
             if (!isRunning) {
-                updateObjectsFromControls();
-               // startTime = Date.now();
-               // gravityChanged = false;
+                // Only seed from the controls on a fresh run. Resuming from a
+                // pause must keep the planet where it is, or the trail snaps
+                // back to the starting point.
+                if (!hasStarted) {
+                    updateObjectsFromControls();
+                    hasStarted = true;
+                }
                 isRunning = true;
+                
+                document.getElementById('status').textContent = "Simulation running";
+                document.getElementById('status').className = "status";
                 
                 document.getElementById('startBtn').disabled = true;
                 document.getElementById('pauseBtn').disabled = false;
@@ -393,6 +401,7 @@
             }
             
             trail = [];
+            hasStarted = false;
             updateObjectsFromControls();
             
             document.getElementById('startBtn').disabled = false;
