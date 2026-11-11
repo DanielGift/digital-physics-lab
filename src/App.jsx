@@ -70,6 +70,15 @@ function Home() {
             extended object.
           </p>
         </a>
+
+        <a href="banked-curve-lab.html" className="sim-card">
+          <div className="sim-icon">🏎️</div>
+          <h2 className="sim-title">Banked Curve Lab</h2>
+          <p className="sim-description">
+            Set friction, radius, bank angle, and speed, then watch the
+            forces on a car as it rounds a banked turn, or slips off it!
+          </p>
+        </a>
 	
 
       {/*  <Link to="/physics-lab" className="sim-card">
